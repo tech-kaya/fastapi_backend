@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+asyncpg
+pydantic
+pydantic-settings
+browser-use
+langchain-openai
+langchain-anthropic
+python-multipart
+python-dotenv
+loguru
+tenacity
+gradio
+playwright
