@@ -151,6 +151,26 @@ async def check_existing_successful_submission(
     return result.scalar_one_or_none()
 
 
+async def check_existing_skipped_submission(
+    db: AsyncSession, 
+    place_id: int
+) -> Optional[FormSubmission]:
+    """
+    Check if there's already a skipped submission for this place (no contact form).
+    Returns the existing skipped submission if found, None otherwise.
+    """
+    result = await db.execute(
+        select(FormSubmission)
+        .where(
+            FormSubmission.place_id == place_id,
+            FormSubmission.submission_status == "skipped"
+        )
+        .order_by(FormSubmission.submitted_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_user_submission_history(
     db: AsyncSession, 
     user_id: int, 

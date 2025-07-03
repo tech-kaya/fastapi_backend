@@ -6,7 +6,8 @@ from app.services.form_submitter import FormSubmitter
 from app.core.config import settings
 from app.db.crud.form_submission import (
     get_places, get_random_user, create_form_submission, 
-    update_form_submission_status, check_existing_successful_submission
+    update_form_submission_status, check_existing_successful_submission,
+    check_existing_skipped_submission
 )
 from app.db.schemas.form_submission import FormSubmissionCreate
 
@@ -23,8 +24,8 @@ class SubmissionWorkflow:
         logger.info("🚀 Starting automated form submission workflow")
         
         # Check if API keys are configured
-        if not settings.openai_api_key and not settings.anthropic_api_key:
-            error_msg = "❌ No LLM API keys configured. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env file"
+        if not settings.openai_api_key:
+            error_msg = "❌ No OpenAI API key configured. Please set OPENAI_API_KEY in .env file"
             logger.error(error_msg)
             return {"status": "failed", "message": error_msg}
         
@@ -63,6 +64,10 @@ class SubmissionWorkflow:
                     skipped_count += 1
                     if "Contact form is not available" in result.get("error", ""):
                         logger.info(f"📭 [{i}/{len(places)}] Skipped: {place.name} - No contact form available")
+                    elif "User has already submitted" in result.get("error", ""):
+                        logger.info(f"🔄 [{i}/{len(places)}] Skipped: {place.name} - User already submitted")
+                    elif "Place already marked as having no contact form" in result.get("error", ""):
+                        logger.info(f"📭 [{i}/{len(places)}] Skipped: {place.name} - Already marked as no contact form")
                     else:
                         logger.warning(f"⚠️ [{i}/{len(places)}] Skipped: {place.name} - {result.get('error', 'Unknown reason')}")
                 else:
@@ -102,7 +107,7 @@ class SubmissionWorkflow:
             "configuration": {
                 "headless_mode": settings.headless,
                 "form_timeout": settings.form_timeout,
-                "llm_provider": "OpenAI" if settings.openai_api_key else "Anthropic" if settings.anthropic_api_key else "None"
+                "llm_provider": "OpenAI" if settings.openai_api_key else "None"
             }
         }
         
@@ -136,6 +141,20 @@ class SubmissionWorkflow:
                 "error": "User already has successful submission for this place",
                 "existing_submission_id": existing_submission.id,
                 "existing_submission_date": existing_submission.submitted_at
+            }
+
+        # Check if this place has already been marked as skipped (no contact form)
+        existing_skipped_submission = await check_existing_skipped_submission(db, place.id)
+        if existing_skipped_submission:
+            logger.info(f"📭 Place {place.name} already marked as skipped (no contact form) - submission #{existing_skipped_submission.id}")
+            return {
+                "place_id": place.id,
+                "place_name": place.name,
+                "website_url": place.website,
+                "status": "skipped",
+                "error": "Place already marked as having no contact form",
+                "existing_submission_id": existing_skipped_submission.id,
+                "existing_submission_date": existing_skipped_submission.submitted_at
             }
         
         # Validate website URL
