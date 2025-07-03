@@ -10,7 +10,7 @@ This application provides:
 - **Bulk Processing**: Process all websites in the database with a single API call
 - **Individual Submissions**: Submit forms for specific websites
 - **Form Analysis**: Analyze website contact forms before automation
-- **Multiple LLM Support**: Works with OpenAI, Anthropic, and other AI models
+- **OpenAI Integration**: Works with OpenAI models for intelligent form filling
 - **Comprehensive Logging**: Track submission status, errors, and success indicators
 - **RESTful API**: Clean, documented endpoints for all operations
 - **Production Ready**: Async/await, proper error handling, background tasks
@@ -50,10 +50,8 @@ This application provides:
 5. **Add LLM API Keys** (Required for browser-use agent)
    ```bash
    # Add to your .env file:
-   OPENAI_API_KEY=your_openai_api_key_here
-   # OR
-   ANTHROPIC_API_KEY=your_anthropic_api_key_here
-   ```
+       OPENAI_API_KEY=your_openai_api_key_here
+    ```
 
 6. **Start the FastAPI backend**
    ```bash

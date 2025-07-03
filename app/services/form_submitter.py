@@ -53,7 +53,7 @@ class FormSubmitter:
     def _get_llm_config(self):
         """Get LLM configuration for browser-use Agent"""
         try:
-            # Check for OpenAI API key first
+            # Check for OpenAI API key
             if settings.openai_api_key:
                 from langchain_openai import ChatOpenAI
                 return ChatOpenAI(
@@ -61,23 +61,13 @@ class FormSubmitter:
                     api_key=settings.openai_api_key,
                     temperature=0.1  # Lower temperature for more focused behavior
                 )
-            
-            # Check for Anthropic API key
-            elif settings.anthropic_api_key:
-                from langchain_anthropic import ChatAnthropic
-                return ChatAnthropic(
-                    model="claude-3-sonnet-20240229",
-                    api_key=settings.anthropic_api_key,
-                    temperature=0.1
-                )
-            
             else:
-                logger.warning("No LLM API key found. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY in your .env file")
+                logger.warning("No OpenAI API key found. Please set OPENAI_API_KEY in your .env file")
                 return None
                 
         except ImportError as e:
-            logger.error(f"Failed to import LLM class: {e}")
-            logger.info("Make sure to install: pip install langchain-openai langchain-anthropic")
+            logger.error(f"Failed to import OpenAI LLM class: {e}")
+            logger.info("Make sure to install: pip install langchain-openai")
             return None
     
     async def _detect_captcha_or_bot_protection(self) -> Dict[str, Any]:
@@ -119,7 +109,7 @@ class FormSubmitter:
             
             # Check if this user has already successfully submitted to this place
             if user_id and place_id and db_session:
-                from app.db.crud.form_submission import check_existing_successful_submission
+                from app.db.crud.form_submission import check_existing_successful_submission, check_existing_skipped_submission
                 existing_submission = await check_existing_successful_submission(db_session, user_id, place_id)
                 if existing_submission:
                     logger.info(f"✅ User {user_id} already has successful submission for place {place_id} (submission #{existing_submission.id})")
@@ -127,6 +117,17 @@ class FormSubmitter:
                         "status": "skipped",
                         "message": f"User already has successful submission for this place (submission #{existing_submission.id})",
                         "existing_submission_id": existing_submission.id,
+                        "website_url": website_url
+                    }
+                
+                # Check if this place has already been marked as skipped (no contact form)
+                existing_skipped_submission = await check_existing_skipped_submission(db_session, place_id)
+                if existing_skipped_submission:
+                    logger.info(f"📭 Place {place_id} already marked as skipped (no contact form) - submission #{existing_skipped_submission.id}")
+                    return {
+                        "status": "skipped",
+                        "message": f"Place already marked as having no contact form (submission #{existing_skipped_submission.id})",
+                        "existing_submission_id": existing_skipped_submission.id,
                         "website_url": website_url
                     }
             
@@ -138,8 +139,8 @@ class FormSubmitter:
             if not llm:
                 return {
                     "status": "failed",
-                    "message": "No LLM configuration available. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env file",
-                    "error": "Missing API keys"
+                    "message": "No LLM configuration available. Please set OPENAI_API_KEY in .env file",
+                    "error": "Missing API key"
                 }
             
             logger.info(f"✅ LLM configured: {type(llm).__name__}")
@@ -162,6 +163,16 @@ class FormSubmitter:
                 
                 logger.info(f"✅ Form submission completed for {website_url}")
                 
+                # Check if result indicates SUCCESS first (highest priority)
+                if "SUCCESS" in str(result):
+                    logger.info(f"✅ Form submitted successfully for {website_url}")
+                    return {
+                        "status": "success",
+                        "message": "Form submitted successfully",
+                        "agent_result": str(result),
+                        "website_url": website_url
+                    }
+                
                 # Check if result indicates no contact form available
                 if "NO_CONTACT_FORM_AVAILABLE" in str(result):
                     logger.warning(f"📭 No contact form found for {website_url}")
@@ -173,8 +184,19 @@ class FormSubmitter:
                         "website_url": website_url
                     }
                 
-                # Check if result indicates CAPTCHA blocking
-                if "captcha" in str(result).lower() or "verification" in str(result).lower():
+                # Check if result indicates user already submitted
+                if "User has already submitted to this website" in str(result):
+                    logger.info(f"🔄 User has already submitted to {website_url}")
+                    return {
+                        "status": "skipped",
+                        "message": "User has already submitted to this website",
+                        "error": "User has already submitted",
+                        "agent_result": str(result),
+                        "website_url": website_url
+                    }
+                
+                # Check if result indicates CAPTCHA blocking (but not if already marked as success)
+                if "CAPTCHA_BLOCKED" in str(result) or ("captcha" in str(result).lower() and "SUCCESS" not in str(result)):
                     logger.warning(f"🔒 CAPTCHA detected during submission for {website_url}")
                     return {
                         "status": "failed",
@@ -233,8 +255,8 @@ class FormSubmitter:
             if not llm:
                 return {
                     "status": "failed",
-                    "message": "No LLM configuration available. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env file",
-                    "error": "Missing API keys"
+                    "message": "No LLM configuration available. Please set OPENAI_API_KEY in .env file",
+                    "error": "Missing API key"
                 }
             
             logger.info(f"✅ LLM configured: {type(llm).__name__}")

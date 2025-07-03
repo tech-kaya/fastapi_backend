@@ -6,203 +6,329 @@ def create_form_submission_prompt(website_url: str, user_data: Dict[str, Any]) -
     Create a comprehensive prompt for form submission with anti-stuck measures.
     """
     return f"""
-Navigate to {website_url} and fill out the contact form with the provided information.
+✅ OBJECTIVE: Submit Contact Form at {website_url} (ONLY ONCE per User)
+USER DETAILS (DO NOT DUPLICATE):
 
-CRITICAL: USER-SPECIFIC DUPLICATE PREVENTION
-- This user ({user_data.get('name', '')} - {user_data.get('email', '')}) should ONLY submit to this website ONCE
-- Before filling any form, check if this specific user has already submitted to this website
-- Look for any signs that this user/email has already contacted this business
-- If you find evidence of previous submission by this user, STOP immediately
-- Report "User has already submitted to this website" and use the "done" action
-- NEVER submit the same form multiple times for the same user
+Name: {user_data.get('name', '')}
 
-IMPORTANT: BEFORE STARTING FORM SUBMISSION
-- Check if this form has already been successfully submitted
-- Look for any confirmation messages, success notifications, or "already submitted" indicators
-- If you find evidence that the form was already submitted successfully, STOP immediately
-- Report "Form already submitted successfully" and use the "done" action
-- DO NOT fill or submit the same form multiple times
+Email: {user_data.get('email', '')}
 
-CRITICAL ANTI-STUCK MEASURES (MUST FOLLOW):
-- NEVER click the same element more than 2 times total
-- IF same action performed 3 times → IMMEDIATELY stop and try different approach
-- IF stuck on any task for 5+ steps → ABANDON that task and move to next
-- IF on step 20+ → START emergency completion process
-- IF on step 30+ → STOP and report what was accomplished
-- MAXIMUM 3 minutes total execution time
+Phone: {user_data.get('phone', '')}
 
-LOOP PREVENTION (EMERGENCY):
-- Same button clicked 3 times → STOP clicking it, try different element
-- Same text scrolled to 3 times → STOP scrolling, continue task
-- Same popup interaction 3 times → IGNORE popup completely
-- Same page visited 3 times → REPORT NO_CONTACT_FORM_AVAILABLE
-- ANY repetitive pattern detected → BREAK OUT immediately
-- Application launch popups (FaceTime, etc.) → CANCEL immediately, don't retry
+Message: {user_data.get('message', '')}
 
-RECOVERY STRATEGIES WHEN STUCK:
-1. IMMEDIATE ACTIONS when element won't click:
-   - Try scrolling up/down to refresh the page view
-   - Try clicking a different nearby element
-   - Navigate back using browser back button
-   - Try typing the URL directly in address bar
+🛑 CRITICAL DUPLICATE PREVENTION
+Before filling anything:
 
-2. OVERLAY/POPUP STUCK RECOVERY:
-   - If same overlay keeps appearing, STOP trying to close it
-   - IGNORE the overlay completely and work around it
-   - Use scrolling to access form elements behind overlay
-   - Continue with form submission even if overlay remains visible
-   - Focus on form fields, not overlay dismissal
+Check if this user/email has already submitted (look for thank-you messages, confirmation texts, or disabled forms).
 
-3. PHONE NUMBER VALIDATION ISSUES:
-   - If phone field shows format error, DO NOT retry same format
-   - Clear field and try next format from the list above
-   - If 3 formats fail, skip phone field entirely
-   - NEVER spend more than 30 seconds on phone formatting
+If any sign of prior submission:
+→ STOP and report: "User has already submitted to this website"
+→ Action: done
 
-4. CAPTCHA HANDLING ISSUES:
-   - If CAPTCHA appears, handle it immediately according to priority
-   - If SKIP button available, click it without attempting to solve
-   - If CAPTCHA is complex, try audio alternative or refresh page
-   - If CAPTCHA fails 2 times, abandon form and report CAPTCHA_BLOCKED
-   - NEVER spend more than 60 seconds on CAPTCHA challenges
+🧠 CONTACT FORM SEARCH MEMORY SYSTEM
+Keep track of failed contact form searches to prevent infinite loops:
 
-5. ALTERNATIVE EXPLORATION METHODS:
-   - Use browser search (Ctrl+F) to find form fields
-   - Look for visible form elements without clicking everything
-   - Focus on collecting visible information rather than clicking everything
-   - Extract form structure information visually
+FAILED ATTEMPT TRACKING:
+- 404 errors on contact pages = 1 failed attempt
+- "Contact" navigation links that don't work = 1 failed attempt  
+- Contact pages with no actual forms = 1 failed attempt
+- Any dead-end contact search = 1 failed attempt
 
-6. PROGRESSIVE FALLBACK:
-   - If main navigation fails → try footer links
-   - If clicking fails → look for visible forms on current page
-   - If page won't load → try going back and using different path
-   - If phone number fails → skip phone field and continue
-   - If CAPTCHA blocks submission → report CAPTCHA_BLOCKED
-   - If overlays persist → ignore them and continue with form
-   - If completely stuck → provide partial results and stop
+STOP RULE:
+- After 2-3 failed contact form search attempts → IMMEDIATELY report "NO_CONTACT_FORM_AVAILABLE"
+- DO NOT keep trying the same approaches repeatedly
+- DO NOT go back to homepage after multiple failed contact searches
+- DO NOT retry URLs that already returned 404 errors
 
-7. SMART ABANDONMENT:
-   - If you've been trying the same action for 30+ seconds → STOP
-   - If you've tried 3+ different elements without success → MOVE ON
-   - If you're in a click loop → BREAK OUT by going to homepage
-   - If phone formatting fails 3 times → SKIP phone field
-   - If CAPTCHA appears and no skip option → abandon form
-   - If trying to close same overlay repeatedly → IGNORE overlay and continue
-   - If NO contact forms found after thorough search → report "NO_CONTACT_FORM_AVAILABLE"
-   - Better to have partial results than to get completely stuck
+SMART ABANDONMENT:
+- If you've tried main nav contact links + direct URLs (/contact, /contact-us) and both failed → STOP
+- If homepage has no contact forms and contact page is 404 → STOP  
+- If you've searched for 60+ seconds with no contact form found → STOP
+- If you're on step 15+ with no contact form progress → STOP and report "NO_CONTACT_FORM_AVAILABLE"
 
-8. NO CONTACT FORM ABANDONMENT:
-   - If no "Contact" links found in navigation after 45 seconds → report "NO_CONTACT_FORM_AVAILABLE"
-   - If contact pages return 404 or don't exist → report "NO_CONTACT_FORM_AVAILABLE"
-   - If website only has informational content with no contact options → report "NO_CONTACT_FORM_AVAILABLE"
-   - If only phone/email listed but no actual contact form → report "NO_CONTACT_FORM_AVAILABLE"
-   - If searched everywhere but no contact form exists → report "NO_CONTACT_FORM_AVAILABLE"
+🧭 STEP-BY-STEP EXECUTION
+🚨 CRITICAL SEQUENCE: FILL ALL FIELDS FIRST, THEN SUBMIT
+1. Find contact form
+2. Fill ALL basic fields (name, email, phone, message) + VERIFY they appear on page
+3. Fill ALL required fields (checkboxes, math problems, dropdowns) + VERIFY they are set
+4. LOOK at the page and confirm ALL fields show correct values
+5. ONLY THEN click submit button
+6. Wait for confirmation
 
-STEALTH BEHAVIOR (CRITICAL):
-- Move mouse naturally with slight delays between actions
-- Scroll page occasionally to mimic human behavior  
-- Wait 1-2 seconds between form field inputs
-- Vary typing speed - not too fast, not too slow
-- Take brief pauses (1-3 seconds) between major actions
-- If page seems to be loading, wait patiently
+🚨 MEMORY vs REALITY CHECK:
+- Your memory might say "fields are filled" but the page might be empty
+- ALWAYS trust what you SEE on the page, not what you remember doing
+- If submit doesn't work, LOOK at the page first before trying again
+- If you see empty fields on the page, fill them even if you think you already did
 
-POPUP & OVERLAY BYPASS STRATEGY (CRITICAL):
-- If chat widgets, popups, or overlays appear, IGNORE them and continue with form submission
-- DO NOT try to close, dismiss, or interact with popups/overlays
-- WORK AROUND overlays by focusing on the form elements behind them
-- If popup appears, continue filling form fields - do not get distracted
-- Common blocking popups: chat widgets, advisors, help overlays, promotional popups
-- If overlay blocks form view, scroll or navigate to access form fields directly
-- NEVER waste time trying to close persistent popups that reappear
-- Focus on the PRIMARY TASK: form submission, not popup management
+1️⃣ LOAD WEBSITE (10 seconds max)
+Navigate to {website_url}
 
-APPLICATION LAUNCH POPUP HANDLING (CRITICAL):
-- If "Open FaceTime?" or similar app launch popups appear, IMMEDIATELY click "Cancel" button
-- If "Open [APPLICATION]?" popups appear, ALWAYS click "Cancel" or "Don't Allow"
-- If popup asks to "Always allow [website] to open links", UNCHECK the checkbox and click "Cancel"
-- Common app launch popups: FaceTime, Zoom, Skype, Teams, WhatsApp, Telegram
-- NEVER click "Open [Application]" - always cancel these popups
-- After canceling app launch popup, IMMEDIATELY continue searching for contact form
-- If app launch popup blocks access to contact form, cancel it first then proceed
-- Do NOT let application launch popups distract from the main task
+Cancel any app launch popups (FaceTime, Zoom, etc.) immediately
 
-TASK OBJECTIVE:
-Fill out the contact form with this information (ONLY if this user has not already submitted):
-- Name: {user_data.get('name', '')}
-- Email: {user_data.get('email', '')}
-- Phone: {user_data.get('phone', '')}
-- Message: {user_data.get('message', '')}
+Ignore chat widgets, modals, popups — do not engage or try to close
 
-CRITICAL: This specific user should only submit to this website once. Check for previous submissions by this user.
+If page doesn't load in 10s → refresh once
+Still fails? → STOP and report "NO_CONTACT_FORM_AVAILABLE"
 
-SIMPLIFIED PROCESS:
-1. LOAD PAGE (10 seconds max):
-   - Navigate to {website_url}, ignore any popups
-   - If application launch popup (FaceTime, etc.) appears, click "Cancel" immediately
-   - If page doesn't load, try refresh ONCE then continue
+2️⃣ FIND CONTACT FORM (30 seconds max)
+ATTEMPT 1: Main navigation → Look for: "Contact", "Get in Touch", "Let's Talk", etc.
+- If nav contact link works and has form → PROCEED to fill form
+- If nav contact link is 404 or broken → COUNT as failed attempt (1/3)
 
-2. FIND CONTACT FORM (30 seconds max):
-   - Look for "Contact" links in navigation first
-   - Try /contact, /contact-us URLs if no nav links
-   - If NO contact found anywhere → REPORT "NO_CONTACT_FORM_AVAILABLE" and STOP
-   - If found contact page but no form → REPORT "NO_CONTACT_FORM_AVAILABLE" and STOP
+ATTEMPT 2: Direct URL testing → Try: {website_url}/contact
+- If page loads with form → PROCEED to fill form  
+- If 404 error or no form → COUNT as failed attempt (2/3)
 
-3. FILL FORM (45 seconds max):
-   - Fill fields in order: name, email, phone, message
-   - Skip any field that fails after 2 attempts
-   - IGNORE overlays, work around them
-   - Submit form when all fields filled
+ATTEMPT 3: Alternative URL → Try: {website_url}/contact-us
+- If page loads with form → PROCEED to fill form
+- If 404 error or no form → COUNT as failed attempt (3/3)
 
-4. VERIFY SUBMISSION (15 seconds max):
-   - Check for success indicators: confirmation message, form cleared, page redirect
-   - If NO clear success but no errors → assume SUCCESS
-   - If stuck looking for confirmation → assume SUCCESS and STOP
+STOP CONDITIONS (CHECK AFTER EACH ATTEMPT):
+- 2 failed attempts → IMMEDIATELY report "NO_CONTACT_FORM_AVAILABLE" and Action: done
+- 3 failed attempts → IMMEDIATELY report "NO_CONTACT_FORM_AVAILABLE" and Action: done
+- Any 404 errors + no homepage contact form → IMMEDIATELY report "NO_CONTACT_FORM_AVAILABLE" and Action: done
+- DO NOT go back to homepage after failed contact searches
+- DO NOT retry the same URLs multiple times
 
-5. CAPTCHA HANDLING (if present - 30 seconds max):
-   - Try "I'm not a robot" checkbox first
-   - If image grid appears: read instructions, select tiles individually with 0.5s delays
-   - If fails after 2 attempts → SKIP captcha and submit anyway
-   - If "strict mode violation" → ABANDON immediately
-   - NEVER spend more than 30 seconds on CAPTCHA
+3️⃣ FILL FORM (45 seconds max)
+🚨 CRITICAL: FILL ALL FIELDS FIRST - DO NOT SUBMIT UNTIL ALL FIELDS ARE COMPLETELY FILLED
 
-PHONE FIELD HANDLING:
-- Try original format first: {user_data.get('phone', '')} 
-- If error, try 2 more formats: (301) 374-0860 and 3013740860
-- If still fails after 3 attempts → SKIP phone field entirely
-- NEVER spend more than 15 seconds on phone field
+STEP 1: Fill basic contact fields in EXACT order with verification:
+1. Click name field → Input: {user_data.get('name', '')} → VERIFY text appears in field
+2. Click email field → Input: {user_data.get('email', '')} → VERIFY text appears in field  
+3. Click phone field → Input: {user_data.get('phone', '')} → VERIFY text appears in field
+4. Click message field → Input: {user_data.get('message', '')} → VERIFY text appears in field
 
-6. SUBMIT FORM:
-   - Click submit button ONCE, ignore overlays
-   - Wait 10 seconds for response
-   - SUCCESS indicators: confirmation message, form cleared, page redirect, button disabled
-   - If NO clear success but no errors → assume SUCCESS
-   - STOP immediately after detecting success
+🚨 CRITICAL: After each field input, VISUALLY CONFIRM the text actually appears in the field on the page
 
-FIELD STRATEGY:
-- Fill name, email, phone (3 attempts max), message in order
-- Skip any field that fails after 2-3 attempts
-- Always move forward, never backward
+STEP 2: Fill ALL other required fields with verification:
+1. Find math problems → Calculate answer → Input answer → VERIFY answer appears in field
+2. Find required checkboxes → CHECK them → VERIFY they become checked
+3. Find dropdown menus → Select option → VERIFY selection is made
+4. Find radio buttons → Select option → VERIFY selection is made
 
-EMERGENCY RULES:
-- Step 15+ → SKIP any field that's not working and move forward
-- Step 20+ → SUBMIT form immediately with filled fields
-- Step 30+ → STOP and report completion
-- Same action 3 times → ABANDON and try different approach
+🚨 CRITICAL: After each action, VISUALLY CONFIRM the field actually changed on the page
 
-IMPORTANT RULES:
-- NEVER submit same form twice for same user
-- Stay on {website_url} only
-- Complete task within 3 minutes maximum
-- If NO contact form found → report "NO_CONTACT_FORM_AVAILABLE"
-- IGNORE all overlays/popups completely
+STEP 3: FINAL VERIFICATION - Look at the actual page:
+- VISUALLY CHECK that name field shows: {user_data.get('name', '')}
+- VISUALLY CHECK that email field shows: {user_data.get('email', '')}
+- VISUALLY CHECK that phone field shows: {user_data.get('phone', '')}
+- VISUALLY CHECK that message field shows: {user_data.get('message', '')}
+- VISUALLY CHECK that required checkboxes are checked
+- VISUALLY CHECK that math problems are answered
 
-REPORTING:
-- SUCCESS: Form found and submitted
-- FAILED: Form found but submission failed  
-- CAPTCHA_BLOCKED: CAPTCHA prevented submission
-- NO_CONTACT_FORM_AVAILABLE: No contact form exists
-- If application launch popup encountered and canceled: Continue normally with contact form search
-- If popup prevents access to contact form: Report "Application launch popup was handled, contact form search completed"
+🚨 IMPORTANT: DO NOT CLICK SUBMIT BUTTON until you can SEE all fields are filled on the actual page
+
+🚨 IF FIELDS DON'T FILL PROPERLY:
+- If you try to input text but the field remains empty → Try clicking the field first, then input
+- If text doesn't appear after input → Try clearing the field and typing again
+- If fields keep appearing empty → Try different input methods or skip that field
+- DO NOT proceed to submit if you cannot see the text in the fields
+
+🔲 REQUIRED FIELDS CHECK (CRITICAL):
+🚨 COMPLETE THIS STEP BEFORE CLICKING SUBMIT - scan the ENTIRE form for ALL required fields:
+
+CHECKBOX IDENTIFICATION & HANDLING:
+- Look for checkboxes near text like: "I agree", "Terms", "Privacy", "Newsletter", "Accept", "Consent"
+- Check for checkboxes marked with * or "required"
+- Look for checkboxes with labels containing: "agree", "accept", "terms", "privacy", "policy", "consent"
+- If checkbox is UNCHECKED → CLICK it to check it
+- If checkbox is ALREADY CHECKED → leave it alone
+- Check ALL visible checkboxes that seem required for form submission
+
+MATH/CAPTCHA FIELDS:
+- Look for math problems like "5+2=?" or "What is 3+4?"
+- Calculate the answer and input the number
+- Look for fields asking simple questions like "What is 7+0?" → input "7"
+
+OTHER REQUIRED FIELDS:
+- Radio buttons → Select first reasonable option
+- Dropdown menus → Select relevant option (not "Select..." or blank)
+- Any field marked with * or "required" → Fill it
+- Text fields marked "required" → Fill with appropriate content
+
+SUBMISSION VALIDATION CHECK:
+🚨 ONLY if form doesn't submit after clicking submit button:
+1. Look for error messages or red text indicating missing fields
+2. Scan form again for any unchecked required checkboxes
+3. Check for any empty required fields
+4. Fill/check any missing required fields
+5. Try submit again ONCE
+
+🚨 REMEMBER: Fill ALL fields FIRST, then submit - not the other way around
+
+SMART REQUIRED FIELD DETECTION:
+- If submit button doesn't work → immediately scan for checkboxes
+- If you see validation errors → look for checkbox requirements
+- If form keeps asking for more info → check for unchecked boxes
+
+4️⃣ CAPTCHA HANDLING (30 seconds max)
+If "I'm not a robot" checkbox → click once
+
+If grid challenge appears:
+
+Try solving with 0.5s delay between tiles
+
+Fails after 2 tries? → Skip captcha and attempt submission
+
+If MATH PROBLEM appears:
+- Simple math like "5+2=?" → calculate and input answer
+- Questions like "What is 7+0?" → input "7"  
+- "Enter the sum of 3+4" → input "7"
+- Always input just the number, no extra text
+
+Complex CAPTCHA blocks submission?
+→ Report: "CAPTCHA_BLOCKED" and stop
+
+5️⃣ SUBMIT FORM (ONLY AFTER VISUAL CONFIRMATION ALL FIELDS ARE FILLED)
+🚨 CRITICAL: BEFORE CLICKING SUBMIT - LOOK AT THE ACTUAL PAGE:
+- LOOK at name field → Confirm it contains: {user_data.get('name', '')}
+- LOOK at email field → Confirm it contains: {user_data.get('email', '')}
+- LOOK at phone field → Confirm it contains: {user_data.get('phone', '')}
+- LOOK at message field → Confirm it contains: {user_data.get('message', '')}
+- LOOK at checkboxes → Confirm they are checked (not unchecked)
+- LOOK at math fields → Confirm they contain the correct answer
+
+🚨 CRITICAL: If ANY field is empty or incorrect on the page → DO NOT SUBMIT → Go back and fix it
+
+ONLY AFTER SEEING ALL FIELDS ARE CORRECTLY FILLED ON THE PAGE:
+- Click submit button ONCE
+- Wait up to 10s for confirmation (but STOP IMMEDIATELY if any success indicator detected)
+
+⏰ DURING WAITING PERIOD:
+- If form fields clear/become empty → STOP waiting, report SUCCESS
+- If memory shows "form submitted successfully" → STOP waiting, report SUCCESS  
+- If no errors appear for 10 seconds → STOP waiting, report SUCCESS
+- DO NOT wait longer than 10 seconds for confirmation messages
+
+🎯 SUCCESS DETECTION SYSTEM:
+
+EXPLICIT SUCCESS INDICATORS:
+- "Thank you" message or confirmation text
+- Page redirect to thank-you/success page
+- Form fields cleared after submission
+- Submit button disabled/changed to "Submitted"
+- Success notification or popup
+
+MEMORY-BASED SUCCESS DETECTION:
+- Form was filled completely and submit clicked without errors
+- Page reloaded or refreshed after submission
+- Contact form becomes "available again" (indicates previous submission)
+- No validation errors appeared after clicking submit
+- Browser stayed on same domain (didn't redirect to error page)
+- Agent memory shows "Form submitted successfully" or similar
+- Form fields became empty/cleared after submission (common success indicator)
+
+CONTEXT CLUES FOR SUCCESS:
+- Submit button was clicked successfully
+- No error messages appeared for 5+ seconds after submission
+- Form behavior changed (reset, disabled, or modified)
+- URL parameters changed (often indicates form processing)
+- Page content shifted or updated after submission
+
+SMART SUCCESS DECISION:
+- If ANY explicit success indicator → Report: "SUCCESS"
+- If ALL fields VISUALLY confirmed filled + submit clicked + no errors for 10 seconds → Report: "SUCCESS"
+- If memory indicates "contact form available again" → Report: "SUCCESS"
+- If ALL fields were VISUALLY confirmed filled and submitted without validation errors → Report: "SUCCESS"
+- If agent memory shows "Form submitted successfully" AND fields were VISUALLY confirmed filled → STOP WAITING and Report: "SUCCESS"
+- If form fields cleared/became empty after submission → Report: "SUCCESS"
+
+🛑 STOP WAITING CONDITIONS:
+- If you've waited 10+ seconds after clicking submit → STOP and declare SUCCESS
+- If memory shows "form submitted successfully" → STOP and declare SUCCESS immediately
+- If form fields became empty after submission → STOP and declare SUCCESS immediately
+- If no error messages appeared for 10+ seconds → STOP and declare SUCCESS
+- If memory shows "form submission status is unclear" for 5+ steps → STOP and declare SUCCESS
+- DO NOT wait indefinitely for confirmation messages
+- DO NOT keep waiting if memory already indicates successful submission
+
+ONLY report failure if:
+- Clear error messages appeared
+- Submit button failed to click
+- Validation errors blocked submission
+- CAPTCHA explicitly blocked submission
+
+⛔ SMART ABANDONMENT & EMERGENCY TRIGGERS
+Trigger STOP if any of these:
+
+3+ clicks on same element → abandon that element
+
+3+ scrolls to same position → move on
+
+Submit button clicked 3+ times → STOP and report SUCCESS (form likely submitted)
+
+Step 15+ → skip problematic fields
+
+Step 20+ → EMERGENCY CHECKPOINT:
+- If still trying to submit → STOP and LOOK at the actual page
+- Check what fields are VISUALLY empty or incorrect on the page
+- Fill ONLY the fields that are actually empty on the page
+- Check ONLY the checkboxes that are actually unchecked on the page
+- If page shows all fields filled correctly → declare SUCCESS and stop (form likely submitted)
+
+Step 30+ or time > 3 mins → stop and summarize actions
+
+🔁 LOOP/STUCK PREVENTION
+DO NOT try same action 3x
+
+DO NOT retry stuck phone/captcha fields
+
+DO NOT try to close overlays/persistent modals
+
+DO NOT retry failed contact form searches (remember: 2-3 failed attempts = STOP)
+
+DO NOT go back to homepage after multiple failed contact searches
+
+DO NOT click submit button more than 2 times → If first submit fails, check for required fields, fill them, then try submit once more
+
+🚨 EMERGENCY LOOP DETECTION:
+- If you've tried the same action 3+ times in a row → STOP that action
+- If you're on step 15+ and still trying to submit → STOP and LOOK at the actual page to see if fields are really filled
+- If you keep inputting the same value → STOP and VISUALLY CHECK if previous fields actually got filled
+- If status remains "unclear" for 5+ steps → STOP and LOOK at the page to verify ALL fields before submitting
+- If you clicked submit but form didn't work → LOOK at the page and check what's actually missing
+
+🚨 FIELD REFILLING PREVENTION:
+- If checkboxes are already checked → DO NOT click them again (this unchecks them)
+- If fields already contain correct text → DO NOT refill them
+- If math problems already have answers → DO NOT input again
+- ONLY fill empty fields or fix incorrect fields
+
+🚨 VISUAL CONFIRMATION REQUIRED:
+- DO NOT trust your memory about field states
+- ALWAYS look at the actual page to see current field values
+- If you think fields are filled but submit doesn't work → LOOK at the page to see what's really there
+
+If stuck for 30+ seconds → abandon step, move forward
+
+If completely stuck anywhere → report partial status and stop
+
+FINAL ACTIONS
+✅ If form submitted (use SUCCESS DETECTION SYSTEM above):
+→ Report "SUCCESS" with confirmation indicator or memory evidence
+
+❌ If no form:
+→ Report "NO_CONTACT_FORM_AVAILABLE"
+
+🧱 CAPTCHA blocks:
+→ Report "CAPTCHA_BLOCKED"
+
+🔁 Duplicate found:
+→ Report "User has already submitted to this website"
+
+🎯 SUCCESS REPORTING EXAMPLES:
+- "SUCCESS - Thank you message displayed after visually confirming all fields filled and submitting"
+- "SUCCESS - All fields visually confirmed filled, form submitted successfully, no errors detected"
+- "SUCCESS - Contact form available again after complete submission with visual field confirmation"
+- "SUCCESS - All fields visually confirmed filled, form submitted, fields cleared and submit button disabled"
+- "SUCCESS - All required fields visually confirmed filled and submitted without validation errors"
+- "SUCCESS - All fields visually confirmed filled, agent memory shows form submitted successfully, no confirmation needed"
+- "SUCCESS - All fields visually confirmed filled, form submitted, fields became empty after submission"
+- "SUCCESS - All fields visually confirmed filled, submit button clicked successfully, waited 10 seconds with no errors"
+- "SUCCESS - All fields visually confirmed filled, form submission status unclear but reached step 20+, assuming success"
 
 Use the "done" action when completed with a clear summary of what was accomplished.
 """

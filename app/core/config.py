@@ -30,9 +30,7 @@ class Settings(BaseSettings):
     # LLM API Keys (at least one required for browser-use)
     # Add these to your .env file:
     # OPENAI_API_KEY=your_openai_key_here
-    # ANTHROPIC_API_KEY=your_anthropic_key_here
     openai_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
     
     # Browser-use UI Settings (optional)
     browser_use_ui: bool = True
@@ -76,8 +74,6 @@ class Settings(BaseSettings):
         # Set API keys in environment if they exist
         if self.openai_api_key:
             os.environ["OPENAI_API_KEY"] = self.openai_api_key
-        if self.anthropic_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = self.anthropic_api_key
         
         # Configure stealth mode settings
         if self.stealth_mode:
