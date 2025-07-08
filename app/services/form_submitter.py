@@ -1,98 +1,174 @@
 import asyncio
-import os
-from typing import Optional, Dict, Any
+import json
+import time
+import requests
+from typing import Optional, Dict, Any, List
 from loguru import logger
-from tenacity import retry, stop_after_attempt, wait_fixed
-from browser_use import Agent
 from app.core.config import settings
-from app.services.prompts import create_form_submission_prompt, create_form_analysis_prompt
-from app.utils.form_selectors import (
-    get_form_selector, get_field_selectors, get_submit_selector, get_navigation_selector,
-    get_captcha_selectors, get_anti_bot_selectors, get_captcha_skip_selectors
-)
+from app.services.prompts import create_form_submission_prompt
+from app.services.structure_output import StructuredOutputHandler
 
 
-class FormSubmitter:
-    def __init__(self):
-        self.agent: Optional[Agent] = None
+class BrowserUseAPIClient:
+    """Browser-use cloud API client based on official documentation pattern"""
+    
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = 'https://api.browser-use.com/api/v1'
+        self.headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
         
     async def __aenter__(self):
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # Clean up if needed
         pass
     
-    def _setup_stealth_mode(self):
-        """Configure stealth mode environment variables for browser-use"""
-        try:
-            # Set stealth mode environment variables
-            os.environ['STEALTH_MODE'] = 'true'
-            os.environ['DISABLE_BLINK_FEATURES'] = 'AutomationControlled'
-            os.environ['USER_AGENT'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            os.environ['VIEWPORT_SIZE'] = '1366x768'
-            os.environ['DISABLE_WEB_SECURITY'] = 'false'
-            os.environ['DISABLE_FEATURES'] = 'VizDisplayCompositor'
-            
-            # Additional stealth settings
-            os.environ['DISABLE_EXTENSIONS'] = 'false'
-            os.environ['DISABLE_PLUGINS'] = 'false'
-            os.environ['DISABLE_IMAGES'] = 'false'
-            os.environ['DISABLE_JAVASCRIPT'] = 'false'
-            
-            # Anti-detection measures
-            os.environ['HIDE_WEBDRIVER'] = 'true'
-            os.environ['RANDOMIZE_VIEWPORT'] = 'true'
-            os.environ['HUMAN_DELAYS'] = 'true'
-            
-            logger.info("🥷 Stealth mode configured for browser automation")
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Could not configure stealth mode: {e}")
-    
-    def _get_llm_config(self):
-        """Get LLM configuration for browser-use Agent"""
-        try:
-            # Check for OpenAI API key
-            if settings.openai_api_key:
-                from langchain_openai import ChatOpenAI
-                return ChatOpenAI(
-                    model="gpt-4o-mini",
-                    api_key=settings.openai_api_key,
-                    temperature=0.1  # Lower temperature for more focused behavior
-                )
-            else:
-                logger.warning("No OpenAI API key found. Please set OPENAI_API_KEY in your .env file")
-                return None
-                
-        except ImportError as e:
-            logger.error(f"Failed to import OpenAI LLM class: {e}")
-            logger.info("Make sure to install: pip install langchain-openai")
-            return None
-    
-    async def _detect_captcha_or_bot_protection(self) -> Dict[str, Any]:
-        """Detect if CAPTCHA or anti-bot protection is present"""
-        detection_result = {
-            "captcha_detected": False,
-            "bot_protection_detected": False,
-            "skip_available": False,
-            "captcha_type": None,
-            "message": "No protection detected"
+    def create_task(self, instructions: str, structured_output_schema: dict = None, config: Dict[str, Any] = None) -> str:
+        """Create a new browser automation task"""
+        payload = {
+            "task": instructions
         }
         
+        # Add structured output if provided
+        if structured_output_schema:
+            payload["structured_output_json"] = json.dumps(structured_output_schema)
+        
+        # Add configuration options
+        if config:
+            for key, value in config.items():
+                if key != "structured_output_json":  # Already handled above
+                    payload[key] = value
+        
         try:
-            # This would be implemented if we had direct browser access
-            # For now, we'll rely on the AI agent to detect and report
-            logger.info("🔍 CAPTCHA/Bot protection detection delegated to AI agent")
-            
+            response = requests.post(f'{self.base_url}/run-task', headers=self.headers, json=payload)
+            response.raise_for_status()
+            return response.json()['id']
         except Exception as e:
-            logger.error(f"Error detecting protection: {e}")
+            logger.error(f"Failed to create task: {e}")
+            raise
+    
+    def get_task_status(self, task_id: str) -> str:
+        """Get current task status"""
+        try:
+            response = requests.get(f'{self.base_url}/task/{task_id}/status', headers=self.headers)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get task status: {e}")
+            raise
+    
+    def get_task_details(self, task_id: str) -> dict:
+        """Get full task details including output"""
+        try:
+            response = requests.get(f'{self.base_url}/task/{task_id}', headers=self.headers)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get task details: {e}")
+            raise
+    
+    def wait_for_completion(self, task_id: str, poll_interval: int = None, show_steps: bool = None) -> dict:
+        """Poll task status until completion with real-time step monitoring"""
+        if poll_interval is None:
+            poll_interval = settings.poll_interval
+        if show_steps is None:
+            show_steps = settings.show_agent_steps
             
-        return detection_result
+        unique_steps = []
+        
+        while True:
+            details = self.get_task_details(task_id)
+            new_steps = details.get('steps', [])
+            
+            # Show new steps in real-time
+            if show_steps and new_steps != unique_steps:
+                for step in new_steps:
+                    if step not in unique_steps:
+                        logger.info(f"🤖 Agent Step: {json.dumps(step, indent=2)}")
+                unique_steps = new_steps
+            
+            status = details.get('status', 'unknown')
+            
+            if status in ['finished', 'failed', 'stopped']:
+                return details
+            
+            logger.info(f"⏳ Task status: {status}")
+            time.sleep(poll_interval)
     
+    async def run_task(self, task_prompt: str, allowed_domains: List[str] = None, config: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Run a complete browser automation task"""
+        try:
+            # Get structured output schema
+            structured_output_schema = StructuredOutputHandler.get_form_submission_schema()
+            
+            # Add allowed domains to config
+            if allowed_domains:
+                if not config:
+                    config = {}
+                config["allowed_domains"] = allowed_domains
+            
+            # Create task
+            task_id = self.create_task(task_prompt, structured_output_schema, config)
+            logger.info(f"🚀 Task created with ID: {task_id}")
+            
+            # Wait for completion with real-time monitoring
+            result = self.wait_for_completion(task_id)
+            
+            # Process result
+            if result.get('status') == 'finished':
+                output = result.get('output', '')
+                
+                # Try to parse structured output
+                structured_output = None
+                if output:
+                    try:
+                        structured_output = json.loads(output)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse structured output: {output}")
+                
+                return {
+                    "status": "success",
+                    "output": output,
+                    "structured_output": structured_output,
+                    "task_id": task_id,
+                    "steps": result.get('steps', [])
+                }
+            else:
+                return {
+                    "status": "failed",
+                    "error": f"Task failed with status: {result.get('status')}",
+                    "task_id": task_id,
+                    "steps": result.get('steps', [])
+                }
+                
+        except Exception as e:
+            logger.error(f"Task execution failed: {e}")
+            return {
+                "status": "failed",
+                "error": str(e)
+            }
 
+
+class FormSubmitter:
+    def __init__(self):
+        """Initialize FormSubmitter with browser-use cloud API"""
+        self.api_client: Optional[BrowserUseAPIClient] = None
+        
+    async def __aenter__(self):
+        if not settings.browser_use_api_key:
+            raise RuntimeError("BROWSER_USE_API_KEY is required. Please set it in your .env file")
+        
+        self.api_client = BrowserUseAPIClient(settings.browser_use_api_key)
+        await self.api_client.__aenter__()
+        return self
     
-    @retry(stop=stop_after_attempt(2), wait=wait_fixed(3))  # Reduced retries to prevent getting stuck
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.api_client:
+            await self.api_client.__aexit__(exc_type, exc_val, exc_tb)
+    
     async def submit_contact_form(
         self, 
         website_url: str, 
@@ -103,9 +179,6 @@ class FormSubmitter:
     ) -> Dict[str, Any]:
         try:
             logger.info(f"🚀 Starting form submission for {website_url}")
-            
-            # Setup stealth mode before starting
-            self._setup_stealth_mode()
             
             # Check if this user has already successfully submitted to this place
             if user_id and place_id and db_session:
@@ -134,102 +207,69 @@ class FormSubmitter:
             # Create the form submission prompt for the AI agent
             task_prompt = create_form_submission_prompt(website_url, user_data)
             
-            # Get LLM configuration
-            llm = self._get_llm_config()
-            if not llm:
-                return {
-                    "status": "failed",
-                    "message": "No LLM configuration available. Please set OPENAI_API_KEY in .env file",
-                    "error": "Missing API key"
+            # For browser-use cloud API, prepend navigation instruction
+            task_prompt = f"First, navigate to {website_url} and then: {task_prompt}"
+            
+            # Use browser-use cloud API for form submission
+            logger.info("🔗 Using browser-use cloud API for form submission with real-time monitoring")
+            
+            # Extract domain from website_url for allowed_domains
+            from urllib.parse import urlparse
+            parsed_url = urlparse(website_url)
+            domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            
+            result = await self.api_client.run_task(
+                task_prompt=task_prompt,
+                allowed_domains=[domain],
+                config={
+                    "llm_model": settings.llm_model,
+                    "browser_viewport_width": settings.browser_viewport_width,
+                    "browser_viewport_height": settings.browser_viewport_height,
+                    "use_adblock": settings.use_adblock,
+                    "highlight_elements": settings.highlight_elements,
+                    "save_browser_data": settings.save_browser_data,
+                    "max_agent_steps": settings.max_agent_steps,
+                    "headless": settings.headless
                 }
-            
-            logger.info(f"✅ LLM configured: {type(llm).__name__}")
-            logger.info(f"🥷 Stealth mode enabled for anti-bot evasion")
-            
-            # Create agent with stealth configuration
-            self.agent = Agent(
-                task=task_prompt,
-                llm=llm
             )
             
-            logger.info(f"🌐 Running browser agent for form submission with stealth and CAPTCHA handling...")
+            logger.info(f"✅ Form submission completed for {website_url}")
             
-            # Execute the form submission task with aggressive timeout to prevent getting stuck
-            try:
-                result = await asyncio.wait_for(
-                    self.agent.run(),
-                    timeout=min(settings.form_timeout, 180)  # Max 3 minutes, use settings timeout if smaller
-                )
+            # Process result using StructuredOutputHandler
+            if result.get("status") == "success":
+                # Add website_url to result for handler
+                result["website_url"] = website_url
                 
-                logger.info(f"✅ Form submission completed for {website_url}")
+                # Parse structured output using the handler
+                structured_output = StructuredOutputHandler.parse_structured_output(result)
                 
-                # Check if result indicates SUCCESS first (highest priority)
-                if "SUCCESS" in str(result):
-                    logger.info(f"✅ Form submitted successfully for {website_url}")
-                    return {
-                        "status": "success",
-                        "message": "Form submitted successfully",
-                        "agent_result": str(result),
-                        "website_url": website_url
-                    }
+                # Analyze agent steps for additional insights
+                agent_analysis = self._analyze_agent_steps_for_success(result.get("steps", []))
                 
-                # Check if result indicates no contact form available
-                if "NO_CONTACT_FORM_AVAILABLE" in str(result):
-                    logger.warning(f"📭 No contact form found for {website_url}")
-                    return {
-                        "status": "skipped",
-                        "message": "Contact form is not available on this website",
-                        "error": "Contact form is not available",
-                        "agent_result": str(result),
-                        "website_url": website_url
-                    }
+                # Enhance structured output with agent analysis
+                final_output = StructuredOutputHandler.enhance_with_agent_analysis(structured_output, agent_analysis)
                 
-                # Check if result indicates user already submitted
-                if "User has already submitted to this website" in str(result):
-                    logger.info(f"🔄 User has already submitted to {website_url}")
-                    return {
-                        "status": "skipped",
-                        "message": "User has already submitted to this website",
-                        "error": "User has already submitted",
-                        "agent_result": str(result),
-                        "website_url": website_url
-                    }
-                
-                # Check if result indicates CAPTCHA blocking (but not if already marked as success)
-                if "CAPTCHA_BLOCKED" in str(result) or ("captcha" in str(result).lower() and "SUCCESS" not in str(result)):
-                    logger.warning(f"🔒 CAPTCHA detected during submission for {website_url}")
-                    return {
-                        "status": "failed",
-                        "message": "Form submission blocked by CAPTCHA verification",
-                        "error": "CAPTCHA_BLOCKED",
-                        "agent_result": str(result),
-                        "website_url": website_url
-                    }
-                
+                # Build final result
                 return {
-                    "status": "success",
-                    "message": "Form submitted successfully",
+                    "status": final_output["status"],
+                    "message": final_output["message"],
+                    "form_found": final_output["form_found"],
+                    "fields_filled": final_output["fields_filled"],
+                    "errors": final_output["errors"],
                     "agent_result": str(result),
+                    "agent_analysis": agent_analysis,
                     "website_url": website_url
                 }
-                
-            except asyncio.TimeoutError:
-                logger.error(f"⏰ Form submission timed out for {website_url}")
-                
-                # Try to cancel the agent if it's still running
-                if self.agent:
-                    try:
-                        # Force cleanup if possible
-                        logger.info("🔄 Attempting to cleanup stuck agent...")
-                    except:
-                        pass
-                
-                return {
-                    "status": "failed",
-                    "message": f"Form submission timed out after {min(settings.form_timeout, 180)} seconds",
-                    "error": "Timeout - agent was stuck",
-                    "website_url": website_url
-                }
+            
+            # Handle case where task failed
+            logger.error(f"❌ Form submission failed for {website_url}")
+            return {
+                "status": "failed",
+                "message": "Form submission failed - no valid response from API",
+                "error": "Invalid API response",
+                "agent_result": str(result),
+                "website_url": website_url
+            }
             
         except Exception as e:
             error_msg = f"Form submission failed for {website_url}: {str(e)}"
@@ -240,63 +280,107 @@ class FormSubmitter:
                 "error": str(e)
             }
     
-
-    
-    async def test_form_detection(self, website_url: str) -> Dict[str, Any]:
-        """Test method to analyze a website's contact form structure."""
-        try:
-            logger.info(f"🔍 Analyzing contact form structure for {website_url}")
+    def _analyze_agent_steps_for_success(self, agent_steps: List[Dict]) -> Dict[str, Any]:
+        """
+        Analyze agent steps to determine if form submission was likely successful.
+        This implements the "step 20+ emergency checkpoint" logic from the prompts.
+        """
+        if not agent_steps:
+            return {"likely_success": False, "reason": "No agent steps available"}
+        
+        # Extract step information
+        total_steps = len(agent_steps)
+        last_step = agent_steps[-1] if agent_steps else {}
+        
+        # Look for key success indicators in agent steps
+        form_filled_steps = []
+        submit_clicked_steps = []
+        success_search_steps = []
+        
+        for step in agent_steps:
+            step_goal = step.get("next_goal", "").lower()
+            step_eval = step.get("evaluation_previous_goal", "").lower()
             
-            # Create analysis prompt
-            analysis_prompt = create_form_analysis_prompt(website_url)
+            # Check for form filling activities
+            if any(keyword in step_goal for keyword in ["fill", "input", "enter", "click", "select"]):
+                if any(field in step_goal for field in ["name", "email", "phone", "message", "checkbox"]):
+                    form_filled_steps.append(step)
             
-            # Get LLM configuration
-            llm = self._get_llm_config()
-            if not llm:
+            # Check for submit button clicks
+            if "submit" in step_goal or "submit" in step_eval:
+                if any(keyword in step_eval for keyword in ["clicked", "successfully", "success"]):
+                    submit_clicked_steps.append(step)
+            
+            # Check for success confirmation searches
+            if any(keyword in step_goal for keyword in ["check", "verify", "success", "confirmation", "indicator"]):
+                success_search_steps.append(step)
+        
+        # Analyze patterns for success indicators
+        
+        # Pattern 1: Step 20+ Emergency Checkpoint (from prompts)
+        if total_steps >= 20:
+            # Check if agent has been searching for success indicators for many steps
+            recent_search_steps = [s for s in agent_steps[-10:] if 
+                                 any(keyword in s.get("next_goal", "").lower() for keyword in 
+                                     ["check", "verify", "success", "confirmation", "indicator", "scroll"])]
+            
+            if len(recent_search_steps) >= 5:  # Been searching for success for 5+ recent steps
                 return {
-                    "status": "failed",
-                    "message": "No LLM configuration available. Please set OPENAI_API_KEY in .env file",
-                    "error": "Missing API key"
+                    "likely_success": True,
+                    "reason": f"Step 20+ emergency checkpoint: {total_steps} steps completed, agent has been searching for success indicators for {len(recent_search_steps)} recent steps, indicating form was likely submitted successfully",
+                    "total_steps": total_steps,
+                    "success_search_steps": len(success_search_steps)
                 }
+        
+        # Pattern 2: Submit button clicked successfully + prolonged success search
+        if submit_clicked_steps:
+            last_submit_step = submit_clicked_steps[-1]
+            submit_step_num = last_submit_step.get("step", 0)
             
-            logger.info(f"✅ LLM configured: {type(llm).__name__}")
+            # Count how many steps after submit are just searching for success
+            steps_after_submit = [s for s in agent_steps if s.get("step", 0) > submit_step_num]
+            success_search_after_submit = [s for s in steps_after_submit if 
+                                         any(keyword in s.get("next_goal", "").lower() for keyword in 
+                                             ["check", "verify", "success", "confirmation", "indicator", "scroll"])]
             
-            self.agent = Agent(
-                task=analysis_prompt,
-                llm=llm
-            )
-            
-            logger.info(f"🌐 Running browser agent for form analysis...")
-            
-            # Execute the analysis task with timeout (shorter for analysis)
-            result = await asyncio.wait_for(
-                self.agent.run(),
-                timeout=120  # 2 minutes max for analysis
-            )
-            
-            logger.info(f"✅ Form analysis completed for {website_url}")
-            
+            if len(success_search_after_submit) >= 5:  # 5+ steps of just searching for success
+                return {
+                    "likely_success": True,
+                    "reason": f"Submit button clicked successfully at step {submit_step_num}, followed by {len(success_search_after_submit)} steps of searching for success indicators - form likely submitted successfully",
+                    "submit_step": submit_step_num,
+                    "total_steps": total_steps,
+                    "success_search_after_submit": len(success_search_after_submit)
+                }
+        
+        # Pattern 3: Form filling completed + submit clicked + extended execution
+        if form_filled_steps and submit_clicked_steps and total_steps >= 15:
             return {
-                "status": "success",
-                "message": "Form analysis completed",
-                "analysis_result": str(result),
-                "website_url": website_url
+                "likely_success": True,
+                "reason": f"Form filling completed ({len(form_filled_steps)} fill steps), submit clicked ({len(submit_clicked_steps)} submit steps), and {total_steps} total steps indicates successful submission",
+                "form_filled_steps": len(form_filled_steps),
+                "submit_clicked_steps": len(submit_clicked_steps),
+                "total_steps": total_steps
             }
-            
-        except asyncio.TimeoutError:
-            error_msg = f"Form analysis timed out after 120 seconds for {website_url}"
-            logger.error(error_msg)
-            return {
-                "status": "failed",
-                "message": error_msg,
-                "error": "Timeout"
-            }
-            
-        except Exception as e:
-            error_msg = f"Form analysis failed for {website_url}: {str(e)}"
-            logger.error(error_msg)
-            return {
-                "status": "failed",
-                "message": error_msg,
-                "error": str(e)
-            } 
+        
+        # Pattern 4: Look for explicit success indicators in step evaluations
+        success_keywords = ["success", "submitted", "completed", "filled", "clicked submit"]
+        for step in agent_steps:
+            step_eval = step.get("evaluation_previous_goal", "").lower()
+            if any(keyword in step_eval for keyword in success_keywords):
+                if "submit" in step_eval or "form" in step_eval:
+                    return {
+                        "likely_success": True,
+                        "reason": f"Found explicit success indicator in step {step.get('step', 'unknown')}: {step_eval}",
+                        "success_step": step.get("step", "unknown"),
+                        "total_steps": total_steps
+                    }
+        
+        # Pattern 5: No success indicators found
+        return {
+            "likely_success": False,
+            "reason": f"No clear success indicators found in {total_steps} steps. Form filling: {len(form_filled_steps)} steps, Submit clicked: {len(submit_clicked_steps)} steps, Success search: {len(success_search_steps)} steps",
+            "form_filled_steps": len(form_filled_steps),
+            "submit_clicked_steps": len(submit_clicked_steps),
+            "success_search_steps": len(success_search_steps),
+            "total_steps": total_steps
+        } 
