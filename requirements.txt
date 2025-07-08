@@ -4,12 +4,9 @@ sqlalchemy
 asyncpg
 pydantic
 pydantic-settings
-browser-use
-langchain-openai
+aiohttp
+requests
 
 python-multipart
 python-dotenv
 loguru
-tenacity
-gradio
-playwright
