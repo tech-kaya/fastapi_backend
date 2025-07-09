@@ -3,7 +3,10 @@ runtime: docker
 build:
   commands:
     build:
-      - docker build -t fastapi-app .
+      - echo "Using pre-built ECR image"
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 164695193236.dkr.ecr.us-east-1.amazonaws.com
+      - docker pull 164695193236.dkr.ecr.us-east-1.amazonaws.com/backend-kaya:latest
+      - docker tag 164695193236.dkr.ecr.us-east-1.amazonaws.com/backend-kaya:latest fastapi-app
 run:
   command: uvicorn app.main:app --host 0.0.0.0 --port 8000
   network:
