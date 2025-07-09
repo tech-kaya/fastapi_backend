@@ -1,0 +1,23 @@
+version: 1.0
+runtime: docker
+build:
+  commands:
+    build:
+      - docker build -t backend-kaya .
+run:
+  runtime-version: latest
+  command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+  network:
+    port: 8000
+  env:
+    POSTGRES_DB: postgres
+    POSTGRES_USER: postgress
+    POSTGRES_PASSWORD: Postgress123
+    POSTGRES_HOST: postgress.clw6ay8win72.eu-north-1.rds.amazonaws.com
+    POSTGRES_PORT: "5432"
+    BROWSER_USE_API_KEY: bu_TLSzMVl-qSa84ryRq9VNpISkkuUHksifVBN3fklX8lw
+    LOG_LEVEL: INFO
+    MAX_AGENT_STEPS: "50"
+    FORM_TIMEOUT: "300"
+    HEADLESS: "true"
+    SHOW_AGENT_STEPS: "false"
