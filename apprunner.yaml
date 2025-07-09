@@ -3,7 +3,7 @@ runtime: docker
 build:
   commands:
     build:
-      - docker build -t backend-kaya .
+      - docker build -t fastapi-app .
 run:
   command: uvicorn app.main:app --host 0.0.0.0 --port 8000
   network:
