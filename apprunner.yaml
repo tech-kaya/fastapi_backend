@@ -15,3 +15,8 @@ run:
     POSTGRES_HOST: postgress.clw6ay8win72.eu-north-1.rds.amazonaws.com
     POSTGRES_PORT: "5432"
     BROWSER_USE_API_KEY: bu_TLSzMVl-qSa84ryRq9VNpISkkuUHksifVBN3fklX8lw
+    LOG_LEVEL: INFO
+    MAX_AGENT_STEPS: "50"
+    FORM_TIMEOUT: "300"
+    HEADLESS: "true"
+    SHOW_AGENT_STEPS: "false"
