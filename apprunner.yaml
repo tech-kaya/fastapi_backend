@@ -5,7 +5,6 @@ build:
     build:
       - docker build -t backend-kaya .
 run:
-  runtime-version: latest
   command: uvicorn app.main:app --host 0.0.0.0 --port 8000
   network:
     port: 8000
