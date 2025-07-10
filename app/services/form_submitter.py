@@ -193,13 +193,13 @@ class FormSubmitter:
                         "website_url": website_url
                     }
                 
-                # Check if this place has already been marked as skipped (no contact form)
-                existing_skipped_submission = await check_existing_skipped_submission(db_session, place_id)
+                # Check if this user has already marked this place as skipped (no contact form)
+                existing_skipped_submission = await check_existing_skipped_submission(db_session, user_id, place_id)
                 if existing_skipped_submission:
-                    logger.info(f"📭 Place {place_id} already marked as skipped (no contact form) - submission #{existing_skipped_submission.id}")
+                    logger.info(f"📭 User {user_id} already marked place {place_id} as skipped (no contact form) - submission #{existing_skipped_submission.id}")
                     return {
                         "status": "skipped",
-                        "message": f"Place already marked as having no contact form (submission #{existing_skipped_submission.id})",
+                        "message": f"User already marked this place as having no contact form (submission #{existing_skipped_submission.id})",
                         "existing_submission_id": existing_skipped_submission.id,
                         "website_url": website_url
                     }

@@ -13,6 +13,22 @@ async def get_places(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[
     return result.scalars().all()
 
 
+async def get_places_by_place_ids(db: AsyncSession, place_ids: List[str]) -> List[Place]:
+    """
+    Get places by their place_id strings (Google Places IDs).
+    """
+    result = await db.execute(select(Place).where(Place.place_id.in_(place_ids)))
+    return result.scalars().all()
+
+
+async def get_places_by_ids(db: AsyncSession, place_ids: List[int]) -> List[Place]:
+    """
+    Get places by their IDs.
+    """
+    result = await db.execute(select(Place).where(Place.id.in_(place_ids)))
+    return result.scalars().all()
+
+
 async def get_place_by_id(db: AsyncSession, place_id: int) -> Optional[Place]:
     result = await db.execute(select(Place).where(Place.id == place_id))
     return result.scalar_one_or_none()
@@ -176,17 +192,64 @@ async def check_existing_successful_submission(
 
 async def check_existing_skipped_submission(
     db: AsyncSession, 
+    user_id: int,
     place_id: int
 ) -> Optional[FormSubmission]:
     """
-    Check if there's already a skipped submission for this place (no contact form).
+    Check if there's already a skipped submission for this user and place combination.
     Returns the existing skipped submission if found, None otherwise.
     """
     result = await db.execute(
         select(FormSubmission)
         .where(
+            FormSubmission.user_id == user_id,
             FormSubmission.place_id == place_id,
             FormSubmission.submission_status == "skipped"
+        )
+        .order_by(FormSubmission.submitted_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def check_existing_successful_or_skipped_submission(
+    db: AsyncSession, 
+    user_id: int, 
+    place_id: int
+) -> Optional[FormSubmission]:
+    """
+    Check if there's already a successful or skipped submission for this user and place combination.
+    Returns the existing submission if found, None otherwise.
+    """
+    result = await db.execute(
+        select(FormSubmission)
+        .where(
+            FormSubmission.user_id == user_id,
+            FormSubmission.place_id == place_id,
+            FormSubmission.submission_status.in_(["success", "skipped"])
+        )
+        .order_by(FormSubmission.submitted_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def check_existing_successful_or_skipped_submission_by_place_id(
+    db: AsyncSession, 
+    user_id: int, 
+    place_id: str
+) -> Optional[FormSubmission]:
+    """
+    Check if there's already a successful or skipped submission for this user and place_id combination.
+    Returns the existing submission if found, None otherwise.
+    """
+    result = await db.execute(
+        select(FormSubmission)
+        .join(Place, FormSubmission.place_id == Place.id)
+        .where(
+            FormSubmission.user_id == user_id,
+            Place.place_id == place_id,
+            FormSubmission.submission_status.in_(["success", "skipped"])
         )
         .order_by(FormSubmission.submitted_at.desc())
         .limit(1)

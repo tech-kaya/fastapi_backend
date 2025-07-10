@@ -7,18 +7,24 @@ services:
       - "8000:8000"
     environment:
       - POSTGRES_HOST=postgres
-      - POSTGRES_DB=postgress
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=Postgress123
-      - POSTGRES_PORT=5432
-      - BROWSER_USE_API_KEY=bu_TLSzMVl-qSa84ryRq9VNpISkkuUHksifVBN3fklX8lw
-      - HEADLESS=false
-      - SHOW_AGENT_STEPS=true
-      - LOG_LEVEL=INFO
-      - FORM_TIMEOUT=300
-      - MAX_AGENT_STEPS=50
-      - MAX_RETRIES=3
-      - RETRY_DELAY=5
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - BROWSER_USE_API_KEY=${BROWSER_USE_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
+      - HEADLESS=${HEADLESS}
+      - SHOW_AGENT_STEPS=${SHOW_AGENT_STEPS}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - FORM_TIMEOUT=${FORM_TIMEOUT}
+      - MAX_AGENT_STEPS=${MAX_AGENT_STEPS}
+      - MAX_RETRIES=${MAX_RETRIES}
+      - RETRY_DELAY=${RETRY_DELAY}
+      - BROWSER_VIEWPORT_WIDTH=${BROWSER_VIEWPORT_WIDTH}
+      - BROWSER_VIEWPORT_HEIGHT=${BROWSER_VIEWPORT_HEIGHT}
+      - USE_ADBLOCK=${USE_ADBLOCK}
+      - HIGHLIGHT_ELEMENTS=${HIGHLIGHT_ELEMENTS}
+      - SAVE_BROWSER_DATA=${SAVE_BROWSER_DATA}
     depends_on:
       - postgres
     volumes:
@@ -39,15 +45,15 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_DB=postgress
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=Postgress123
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
