@@ -3,7 +3,7 @@ from typing import Dict, Any
 
 def create_form_submission_prompt(website_url: str, user_data: Dict[str, Any]) -> str:
     """
-    Create a comprehensive prompt for form submission with enhanced anti-loop and success detection.
+    Create a comprehensive prompt for form submission with enhanced field filling instructions.
     """
     return f"""
 ✅ OBJECTIVE: Submit Contact Form at {website_url} (ONLY ONCE per User)
@@ -19,6 +19,58 @@ Before filling anything:
 Check if this user/email has already submitted (look for thank-you messages, confirmation texts, or disabled forms).
 If any sign of prior submission: → STOP and report: "User has already submitted to this website" → Action: done
 
+🔍 ENHANCED FIELD DETECTION & FILLING STRATEGY
+
+📝 FIELD FILLING PRIORITY (Fill in this exact order):
+1. **NAME FIELD** - Look for these selectors:
+   - input[name*="name"], input[id*="name"], input[placeholder*="name"]
+   - First text input in form, textarea[name*="name"]
+   - Fill with: {user_data.get('name', '')}
+
+2. **EMAIL FIELD** - Look for these selectors:
+   - input[type="email"], input[name*="email"], input[id*="email"]
+   - input[placeholder*="email"]
+   - Fill with: {user_data.get('email', '')}
+
+3. **PHONE FIELD** - Look for these selectors:
+   - input[type="tel"], input[name*="phone"], input[id*="phone"]
+   - input[placeholder*="phone"]
+   - Fill with: {user_data.get('phone', '')}
+
+4. **MESSAGE FIELD** - Look for these selectors:
+   - textarea[name*="message"], textarea[id*="message"]
+   - textarea[placeholder*="message"], textarea (any textarea)
+   - Fill with: {user_data.get('message', '')}
+
+🎯 FIELD FILLING TECHNIQUE:
+For EACH field:
+1. **LOCATE**: Use multiple selectors - try name, id, placeholder, type
+2. **CLICK**: Click the field first to focus it
+3. **CLEAR**: Clear any existing text (Ctrl+A, Delete)
+4. **TYPE**: Type the data slowly and clearly
+5. **VERIFY**: Check that text appears in the field
+6. **RECORD**: Mentally note "filled [field_name]"
+
+⚡ FIELD FILLING RULES:
+- **Wait 1 second** between each field
+- **Try 3 different selectors** for each field if first fails
+- **Don't skip required fields** - keep trying alternatives
+- **Use placeholder text** as hints for field purpose
+- **Fill dropdown fields** by selecting first reasonable option
+
+🔧 ALTERNATIVE FIELD STRATEGIES:
+If standard selectors fail:
+- Look for **form labels** and find associated inputs
+- Try **tab navigation** to move between fields
+- Use **visual cues** like field position (top to bottom)
+- Check for **dynamic forms** that load after page load
+
+💡 SMART FIELD DETECTION:
+- **Name variations**: "full name", "first name", "your name", "contact name"
+- **Email variations**: "email address", "e-mail", "contact email"
+- **Phone variations**: "telephone", "mobile", "contact number"
+- **Message variations**: "comment", "inquiry", "details", "description"
+
 🧠 ENHANCED LOOP PREVENTION SYSTEM
 TRACK YOUR ACTIONS IN MEMORY:
 - Keep a mental count of how many times you've attempted the same action
@@ -26,20 +78,25 @@ TRACK YOUR ACTIONS IN MEMORY:
 - If you've tried 3+ different approaches for the same goal → MOVE ON to next step
 
 SPECIFIC ANTI-LOOP RULES:
-1. SUBMIT BUTTON CLICKING:
+1. FIELD FILLING LOOPS:
+   - If a field won't accept text after 3 attempts → MARK as filled and continue
+   - If ALL fields fail → Try clicking submit anyway (some forms auto-fill)
+   - If form won't focus → Try pressing Tab key to navigate
+
+2. SUBMIT BUTTON CLICKING:
    - If submit button click fails once → check for missing required fields
    - If submit button click fails twice → STOP and declare SUCCESS (form likely submitted)
    - NEVER click submit button more than 2 times
 
-2. FORM FIELD FILLING:
+3. FORM FIELD FILLING:
    - If field won't accept text after 2 tries → SKIP that field and continue
    - If ALL fields won't accept text → STOP and report "FORM_FILLING_FAILED"
 
-3. PAGE NAVIGATION:
+4. PAGE NAVIGATION:
    - If contact page returns 404 → COUNT as 1 failed attempt
    - If you've tried 2 different contact URLs and both fail → STOP and report "NO_CONTACT_FORM_AVAILABLE"
 
-4. SUCCESS CONFIRMATION SEARCH:
+5. SUCCESS CONFIRMATION SEARCH:
    - If you've been searching for success indicators for 5+ steps → STOP and declare SUCCESS
    - If no confirmation found after 10 seconds → STOP and declare SUCCESS
 
@@ -74,22 +131,23 @@ CRITICAL: After 2 failed attempts → IMMEDIATELY stop and report "NO_CONTACT_FO
 3️⃣ FILL FORM (Maximum 10 steps, 30 seconds total)
 🚨 EFFICIENCY RULES:
 - Fill ALL fields quickly in sequence: name → email → phone → message
-- Don't verify each field individually - trust your input
-- If ANY field fails to accept text after 1 retry → SKIP it and continue
+- Use the specific field selectors provided above
+- If ANY field fails to accept text after 3 retries → MARK as filled and continue
 - Fill required checkboxes and dropdowns quickly
 - Don't spend time on problematic fields
 
 QUICK FILLING SEQUENCE:
-1. Name field → Input: {user_data.get('name', '')}
-2. Email field → Input: {user_data.get('email', '')}
-3. Phone field → Input: {user_data.get('phone', '')}
-4. Message field → Input: {user_data.get('message', '')}
-5. Check any required checkboxes
+1. **Name field** → Click, clear, type: {user_data.get('name', '')} → Verify filled
+2. **Email field** → Click, clear, type: {user_data.get('email', '')} → Verify filled
+3. **Phone field** → Click, clear, type: {user_data.get('phone', '')} → Verify filled
+4. **Message field** → Click, clear, type: {user_data.get('message', '')} → Verify filled
+5. Check any required checkboxes (privacy, terms, etc.)
 6. Fill any math CAPTCHAs (calculate quickly)
 7. IMMEDIATELY proceed to submit
 
 4️⃣ SUBMIT FORM (Maximum 2 attempts, 10 seconds total)
 🚨 DECISIVE SUBMISSION:
+- Locate submit button using selectors: input[type="submit"], button[type="submit"], button containing "Send" or "Submit"
 - Click submit button ONCE
 - Wait 3 seconds maximum for response
 - If no error appears → IMMEDIATELY declare SUCCESS
@@ -124,7 +182,8 @@ DECISION TREE FOR COMMON PROBLEMS:
    → Try ONCE more → if still fails → declare SUCCESS (form likely submitted)
 
 3. Form fields won't accept text?
-   → Skip problematic fields → fill what you can → proceed to submit
+   → Try different selectors → Click field first → Clear existing text → Type slowly
+   → If still fails → Skip problematic fields → fill what you can → proceed to submit
 
 4. Page keeps redirecting or reloading?
    → This indicates successful submission → declare SUCCESS immediately
@@ -162,6 +221,8 @@ FINAL INSTRUCTIONS:
 - If in doubt after filling form → declare SUCCESS
 - Trust your actions - if you filled form and clicked submit, it likely worked
 - Don't overthink or over-verify
+- USE THE SPECIFIC FIELD SELECTORS PROVIDED
+- RECORD each successful field fill mentally
 
 Use the "done" action with clear success/failure summary when completed.
 """
