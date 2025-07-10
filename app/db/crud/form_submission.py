@@ -36,6 +36,11 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
     return result.scalar_one_or_none()
 
 
+async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+    result = await db.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
+
+
 async def get_random_user(db: AsyncSession) -> Optional[User]:
     result = await db.execute(select(User).order_by(func.random()).limit(1))
     return result.scalar_one_or_none()
@@ -89,6 +94,24 @@ async def get_form_submissions(
     result = await db.execute(
         select(FormSubmission)
         .options(selectinload(FormSubmission.place), selectinload(FormSubmission.user))
+        .offset(skip)
+        .limit(limit)
+        .order_by(FormSubmission.submitted_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def get_form_submissions_by_user_email(
+    db: AsyncSession, 
+    email: str,
+    skip: int = 0, 
+    limit: int = 100
+) -> List[FormSubmission]:
+    result = await db.execute(
+        select(FormSubmission)
+        .join(User, FormSubmission.user_id == User.id)
+        .options(selectinload(FormSubmission.place), selectinload(FormSubmission.user))
+        .where(User.email == email)
         .offset(skip)
         .limit(limit)
         .order_by(FormSubmission.submitted_at.desc())

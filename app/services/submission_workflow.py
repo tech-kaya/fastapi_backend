@@ -16,10 +16,10 @@ class SubmissionWorkflow:
     def __init__(self):
         self.results: List[Dict[str, Any]] = []
     
-    async def process_all_submissions(self, db: AsyncSession) -> Dict[str, Any]:
+    async def process_all_submissions(self, db: AsyncSession, user=None) -> Dict[str, Any]:
         """
         Process form submissions for all places in the database.
-        Uses a random user for each submission.
+        Uses the specified user or a random user for each submission.
         """
         logger.info("🚀 Starting automated form submission workflow")
         
@@ -37,11 +37,12 @@ class SubmissionWorkflow:
             logger.warning("❌ No places found in database")
             return {"status": "completed", "message": "No places to process"}
         
-        # Get a random user for submissions
-        user = await get_random_user(db)
-        if not user:
-            logger.error("❌ No users found in database")
-            return {"status": "failed", "message": "No users available for form submission"}
+        # Use provided user or get a random user for submissions
+        if user is None:
+            user = await get_random_user(db)
+            if not user:
+                logger.error("❌ No users found in database")
+                return {"status": "failed", "message": "No users available for form submission"}
         
         logger.info(f"📋 Processing {len(places)} places using user: {user.first_name} ({user.email})")
         logger.info(f"⏱️ Form timeout: {settings.form_timeout} seconds")

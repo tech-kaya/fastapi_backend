@@ -292,50 +292,97 @@ class FormSubmitter:
         total_steps = len(agent_steps)
         last_step = agent_steps[-1] if agent_steps else {}
         
-        # Look for key success indicators in agent steps
+        # Enhanced analysis for field filling issues
+        form_found_steps = []
         form_filled_steps = []
         submit_clicked_steps = []
         success_search_steps = []
+        field_interaction_steps = []
+        error_steps = []
         
-        for step in agent_steps:
+        # Detailed step analysis
+        for i, step in enumerate(agent_steps):
             step_goal = step.get("next_goal", "").lower()
             step_eval = step.get("evaluation_previous_goal", "").lower()
+            step_num = step.get("step", i + 1)
             
-            # Check for form filling activities
-            if any(keyword in step_goal for keyword in ["fill", "input", "enter", "click", "select"]):
-                if any(field in step_goal for field in ["name", "email", "phone", "message", "checkbox"]):
-                    form_filled_steps.append(step)
+            # Check for form discovery
+            if any(keyword in step_goal for keyword in ["contact form", "form", "contact us", "contact page"]):
+                form_found_steps.append({"step": step_num, "goal": step_goal})
+            
+            # Check for field interactions - enhanced detection
+            field_keywords = ["name", "email", "phone", "message", "subject", "company", "textarea", "input"]
+            interaction_keywords = ["fill", "input", "enter", "type", "click", "select", "focus", "clear"]
+            
+            for field in field_keywords:
+                if field in step_goal:
+                    for action in interaction_keywords:
+                        if action in step_goal:
+                            field_interaction_steps.append({
+                                "step": step_num, 
+                                "field": field, 
+                                "action": action,
+                                "goal": step_goal,
+                                "eval": step_eval
+                            })
+                            break
+            
+            # Check for successful field filling in evaluations
+            if any(success_word in step_eval for success_word in ["filled", "entered", "typed", "successful", "complete"]):
+                form_filled_steps.append({"step": step_num, "eval": step_eval})
             
             # Check for submit button clicks
             if "submit" in step_goal or "submit" in step_eval:
                 if any(keyword in step_eval for keyword in ["clicked", "successfully", "success"]):
-                    submit_clicked_steps.append(step)
+                    submit_clicked_steps.append({"step": step_num, "eval": step_eval})
+            
+            # Check for errors
+            if any(error_word in step_eval for error_word in ["error", "failed", "could not", "unable", "timeout"]):
+                error_steps.append({"step": step_num, "error": step_eval})
             
             # Check for success confirmation searches
             if any(keyword in step_goal for keyword in ["check", "verify", "success", "confirmation", "indicator"]):
-                success_search_steps.append(step)
+                success_search_steps.append({"step": step_num, "goal": step_goal})
         
-        # Analyze patterns for success indicators
+        # Debug logging for field filling issues
+        logger.info(f"🔍 FIELD FILLING ANALYSIS:")
+        logger.info(f"  📋 Form found steps: {len(form_found_steps)}")
+        logger.info(f"  ✏️ Field interaction steps: {len(field_interaction_steps)}")
+        logger.info(f"  ✅ Form filled steps: {len(form_filled_steps)}")
+        logger.info(f"  🔘 Submit clicked steps: {len(submit_clicked_steps)}")
+        logger.info(f"  ❌ Error steps: {len(error_steps)}")
+        logger.info(f"  🔍 Success search steps: {len(success_search_steps)}")
         
-        # Pattern 1: Step 20+ Emergency Checkpoint (from prompts)
+        # Log specific field interactions for debugging
+        if field_interaction_steps:
+            logger.info(f"  📝 Field interactions detected:")
+            for interaction in field_interaction_steps[:5]:  # Show first 5
+                logger.info(f"    Step {interaction['step']}: {interaction['action']} {interaction['field']}")
+        
+        # Log errors for debugging
+        if error_steps:
+            logger.info(f"  ⚠️ Errors detected:")
+            for error in error_steps[:3]:  # Show first 3
+                logger.info(f"    Step {error['step']}: {error['error'][:100]}")
+        
+        # Pattern 1: Step 20+ Emergency Checkpoint
         if total_steps >= 20:
-            # Check if agent has been searching for success indicators for many steps
-            recent_search_steps = [s for s in agent_steps[-10:] if 
-                                 any(keyword in s.get("next_goal", "").lower() for keyword in 
-                                     ["check", "verify", "success", "confirmation", "indicator", "scroll"])]
-            
-            if len(recent_search_steps) >= 5:  # Been searching for success for 5+ recent steps
-                return {
-                    "likely_success": True,
-                    "reason": f"Step 20+ emergency checkpoint: {total_steps} steps completed, agent has been searching for success indicators for {len(recent_search_steps)} recent steps, indicating form was likely submitted successfully",
-                    "total_steps": total_steps,
-                    "success_search_steps": len(success_search_steps)
-                }
+            if len(success_search_steps) >= 5:  # Agent searching for success 5+ recent steps
+                recent_success_searches = [s for s in success_search_steps if s["step"] > total_steps - 10]
+                if len(recent_success_searches) >= 5:
+                    return {
+                        "likely_success": True,
+                        "reason": f"Emergency checkpoint at {total_steps} steps - agent has been searching for success confirmation for {len(recent_success_searches)} recent steps, indicating form was likely submitted successfully",
+                        "total_steps": total_steps,
+                        "recent_success_searches": len(recent_success_searches),
+                        "field_interactions": len(field_interaction_steps),
+                        "form_filled_steps": len(form_filled_steps)
+                    }
         
         # Pattern 2: Submit button clicked successfully + prolonged success search
         if submit_clicked_steps:
             last_submit_step = submit_clicked_steps[-1]
-            submit_step_num = last_submit_step.get("step", 0)
+            submit_step_num = last_submit_step["step"]
             
             # Count how many steps after submit are just searching for success
             steps_after_submit = [s for s in agent_steps if s.get("step", 0) > submit_step_num]
@@ -349,7 +396,8 @@ class FormSubmitter:
                     "reason": f"Submit button clicked successfully at step {submit_step_num}, followed by {len(success_search_after_submit)} steps of searching for success indicators - form likely submitted successfully",
                     "submit_step": submit_step_num,
                     "total_steps": total_steps,
-                    "success_search_after_submit": len(success_search_after_submit)
+                    "success_search_after_submit": len(success_search_after_submit),
+                    "field_interactions": len(field_interaction_steps)
                 }
         
         # Pattern 3: Form filling completed + submit clicked + extended execution
@@ -359,10 +407,21 @@ class FormSubmitter:
                 "reason": f"Form filling completed ({len(form_filled_steps)} fill steps), submit clicked ({len(submit_clicked_steps)} submit steps), and {total_steps} total steps indicates successful submission",
                 "form_filled_steps": len(form_filled_steps),
                 "submit_clicked_steps": len(submit_clicked_steps),
-                "total_steps": total_steps
+                "total_steps": total_steps,
+                "field_interactions": len(field_interaction_steps)
             }
         
-        # Pattern 4: Look for explicit success indicators in step evaluations
+        # Pattern 4: Field interactions detected but no explicit success
+        if field_interaction_steps and total_steps >= 10:
+            return {
+                "likely_success": True,
+                "reason": f"Multiple field interactions detected ({len(field_interaction_steps)} interactions) with {total_steps} total steps - form likely filled and submitted",
+                "field_interactions": len(field_interaction_steps),
+                "total_steps": total_steps,
+                "interactions_detail": [f"{i['action']} {i['field']}" for i in field_interaction_steps[:3]]
+            }
+        
+        # Pattern 5: Look for explicit success indicators in step evaluations
         success_keywords = ["success", "submitted", "completed", "filled", "clicked submit"]
         for step in agent_steps:
             step_eval = step.get("evaluation_previous_goal", "").lower()
@@ -372,15 +431,20 @@ class FormSubmitter:
                         "likely_success": True,
                         "reason": f"Found explicit success indicator in step {step.get('step', 'unknown')}: {step_eval}",
                         "success_step": step.get("step", "unknown"),
-                        "total_steps": total_steps
+                        "total_steps": total_steps,
+                        "field_interactions": len(field_interaction_steps)
                     }
         
-        # Pattern 5: No success indicators found
+        # Pattern 6: No success indicators found - detailed diagnosis
         return {
             "likely_success": False,
-            "reason": f"No clear success indicators found in {total_steps} steps. Form filling: {len(form_filled_steps)} steps, Submit clicked: {len(submit_clicked_steps)} steps, Success search: {len(success_search_steps)} steps",
+            "reason": f"No clear success indicators found in {total_steps} steps. Form found: {len(form_found_steps)}, Field interactions: {len(field_interaction_steps)}, Form filled: {len(form_filled_steps)}, Submit clicked: {len(submit_clicked_steps)}, Errors: {len(error_steps)}",
+            "form_found_steps": len(form_found_steps),
+            "field_interaction_steps": len(field_interaction_steps),
             "form_filled_steps": len(form_filled_steps),
             "submit_clicked_steps": len(submit_clicked_steps),
+            "error_steps": len(error_steps),
             "success_search_steps": len(success_search_steps),
-            "total_steps": total_steps
+            "total_steps": total_steps,
+            "diagnosis": "Field filling detection may need improvement" if len(field_interaction_steps) == 0 else "Form interaction detected but success unclear"
         } 
