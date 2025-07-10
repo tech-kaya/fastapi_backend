@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=postgress
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=Postgress123
+      - POSTGRES_PORT=5432
+      - BROWSER_USE_API_KEY=bu_TLSzMVl-qSa84ryRq9VNpISkkuUHksifVBN3fklX8lw
+      - HEADLESS=false
+      - SHOW_AGENT_STEPS=true
+      - LOG_LEVEL=INFO
+      - FORM_TIMEOUT=300
+      - MAX_AGENT_STEPS=50
+      - MAX_RETRIES=3
+      - RETRY_DELAY=5
+    depends_on:
+      - postgres
+    volumes:
+      - ./app:/app/app
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import requests; requests.get('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=postgress
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=Postgress123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
