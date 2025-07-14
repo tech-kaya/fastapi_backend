@@ -71,32 +71,172 @@ class BrowserUseAPIClient:
             raise
     
     def wait_for_completion(self, task_id: str, poll_interval: int = None, show_steps: bool = None) -> dict:
-        """Poll task status until completion with real-time step monitoring"""
+        """
+        Wait for task completion with real-time monitoring and enhanced loop detection.
+        """
+        # Use settings from config if not provided
         if poll_interval is None:
             poll_interval = settings.poll_interval
         if show_steps is None:
             show_steps = settings.show_agent_steps
-            
-        unique_steps = []
+        
+        step_count = 0
+        last_steps = []
+        consecutive_same_goals = 0
+        last_goal = None
+        captcha_step_count = 0
+        consecutive_captcha_steps = 0
+        
+        # Add timeout protection - max 10 minutes of polling
+        import time
+        start_time = time.time()
+        max_polling_time = 600  # 10 minutes
         
         while True:
-            details = self.get_task_details(task_id)
-            new_steps = details.get('steps', [])
-            
-            # Show new steps in real-time
-            if show_steps and new_steps != unique_steps:
+            try:
+                time.sleep(poll_interval)
+                
+                # Check for timeout
+                if time.time() - start_time > max_polling_time:
+                    logger.error(f"🚨 POLLING TIMEOUT: Task {task_id} has been polling for {max_polling_time/60} minutes")
+                    return {
+                        "status": "failed",
+                        "error": f"Polling timeout after {max_polling_time/60} minutes",
+                        "steps": last_steps,
+                        "total_steps": step_count,
+                        "total_captcha_steps": captcha_step_count
+                    }
+                
+                # Get current task details
+                task_details = self.get_task_details(task_id)
+                current_status = task_details.get("status", "unknown")
+                
+                # Debug logging for status
+                if step_count % 20 == 0:  # Log every 20 polls to debug status issues
+                    logger.info(f"🔍 DEBUG: Task {task_id} status='{current_status}', details={task_details}")
+                
+                # Get current steps
+                current_steps = task_details.get("steps", [])
+                
+                # Process new steps
+                new_steps = current_steps[len(last_steps):]
+                
                 for step in new_steps:
-                    if step not in unique_steps:
+                    step_count += 1
+                    
+                    # Show step if enabled
+                    if show_steps:
                         logger.info(f"🤖 Agent Step: {json.dumps(step, indent=2)}")
-                unique_steps = new_steps
-            
-            status = details.get('status', 'unknown')
-            
-            if status in ['finished', 'failed', 'stopped']:
-                return details
-            
-            logger.info(f"⏳ Task status: {status}")
-            time.sleep(poll_interval)
+                    
+                    # Extract step information for loop detection
+                    current_goal = step.get("next_goal", "").lower()
+                    step_eval = step.get("evaluation_previous_goal", "").lower()
+                    
+                    # CAPTCHA detection
+                    captcha_keywords = ["captcha", "solve", "select images", "traffic lights", "crosswalks", "cars", "motorcycles", "chimneys", "verify", "challenge"]
+                    if any(keyword in current_goal for keyword in captcha_keywords) or any(keyword in step_eval for keyword in captcha_keywords):
+                        captcha_step_count += 1
+                        consecutive_captcha_steps += 1
+                        logger.warning(f"🤖 CAPTCHA detected in step {step_count}: {current_goal[:100]}")
+                    else:
+                        consecutive_captcha_steps = 0
+                    
+                    # Loop detection - same goal repeated
+                    if current_goal == last_goal:
+                        consecutive_same_goals += 1
+                    else:
+                        consecutive_same_goals = 0
+                        last_goal = current_goal
+                    
+                    # CRITICAL: CAPTCHA loop detection
+                    if settings.captcha_detection_enabled and consecutive_captcha_steps >= settings.captcha_loop_threshold:
+                        logger.error(f"🚨 CAPTCHA INFINITE LOOP DETECTED: {consecutive_captcha_steps} consecutive CAPTCHA steps")
+                        return {
+                            "status": "failed",
+                            "error": f"CAPTCHA infinite loop detected after {consecutive_captcha_steps} consecutive steps",
+                            "steps": current_steps,
+                            "captcha_loop_detected": True,
+                            "consecutive_captcha_steps": consecutive_captcha_steps,
+                            "total_captcha_steps": captcha_step_count
+                        }
+                    
+                    # CRITICAL: Excessive CAPTCHA attempts
+                    if settings.captcha_detection_enabled and captcha_step_count >= settings.captcha_total_threshold:
+                        logger.error(f"🚨 EXCESSIVE CAPTCHA ATTEMPTS: {captcha_step_count} total CAPTCHA steps")
+                        return {
+                            "status": "failed",
+                            "error": f"Excessive CAPTCHA attempts detected - {captcha_step_count} total CAPTCHA steps",
+                            "steps": current_steps,
+                            "captcha_excessive_attempts": True,
+                            "total_captcha_steps": captcha_step_count
+                        }
+                    
+                    # Loop detection - same action repeated
+                    if settings.loop_detection_enabled and consecutive_same_goals >= settings.max_consecutive_same_action:
+                        logger.error(f"🚨 INFINITE LOOP DETECTED: Same goal repeated {consecutive_same_goals} times")
+                        return {
+                            "status": "failed",
+                            "error": f"Infinite loop detected - same goal repeated {consecutive_same_goals} times",
+                            "steps": current_steps,
+                            "infinite_loop_detected": True,
+                            "repeated_goal": current_goal
+                        }
+                    
+                    # Emergency checkpoint
+                    if step_count >= settings.emergency_checkpoint_steps:
+                        logger.warning(f"🚨 EMERGENCY CHECKPOINT: {step_count} steps reached")
+                        # Don't fail immediately, but log for monitoring
+                
+                # Update last steps
+                last_steps = current_steps
+                
+                # Check completion status
+                if current_status in ["completed", "finished"]:
+                    logger.info(f"✅ Task completed successfully after {step_count} steps")
+                    return {
+                        "status": "finished",
+                        "steps": current_steps,
+                        "total_steps": step_count,
+                        "total_captcha_steps": captcha_step_count
+                    }
+                elif current_status == "failed":
+                    logger.error(f"❌ Task failed after {step_count} steps")
+                    return {
+                        "status": "failed",
+                        "error": task_details.get("error", "Task failed without specific error"),
+                        "steps": current_steps,
+                        "total_steps": step_count,
+                        "total_captcha_steps": captcha_step_count
+                    }
+                
+                # Log progress (less frequent to avoid spam)
+                polling_count = int((time.time() - start_time) / poll_interval)
+                if show_steps and polling_count % 10 == 0:  # Every 10 polls when showing steps
+                    logger.info(f"⏳ Task status: {current_status} (Step {step_count}, Poll #{polling_count})")
+                elif not show_steps and polling_count % 20 == 0:  # Every 20 polls when not showing steps
+                    logger.info(f"⏳ Task status: {current_status} (Step {step_count}, Poll #{polling_count})")
+                
+                # Additional safety check - if too many steps, force completion
+                if step_count >= settings.max_agent_steps:
+                    logger.warning(f"🚨 MAX STEPS REACHED: {step_count}/{settings.max_agent_steps} - forcing completion")
+                    return {
+                        "status": "finished",
+                        "steps": current_steps,
+                        "total_steps": step_count,
+                        "total_captcha_steps": captcha_step_count,
+                        "forced_completion": True,
+                        "reason": "Maximum steps reached"
+                    }
+                
+            except Exception as e:
+                logger.error(f"Error monitoring task: {str(e)}")
+                return {
+                    "status": "failed",
+                    "error": f"Task monitoring error: {str(e)}",
+                    "steps": current_steps if 'current_steps' in locals() else [],
+                    "total_steps": step_count,
+                    "total_captcha_steps": captcha_step_count
+                }
     
     async def run_task(self, task_prompt: str, allowed_domains: List[str] = None, config: Dict[str, Any] = None) -> Dict[str, Any]:
         """Run a complete browser automation task"""
@@ -218,19 +358,17 @@ class FormSubmitter:
             parsed_url = urlparse(website_url)
             domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
             
+            # Get configuration with proxy settings for automatic CAPTCHA solving
+            config = settings.get_browser_use_config()
+            
+            # Log CAPTCHA handling capability
+            if config.get("use_proxy", False):
+                logger.info(f"🛡️ Automatic CAPTCHA solving enabled via proxy ({config.get('proxy_country_code', 'us')})")
+            
             result = await self.api_client.run_task(
                 task_prompt=task_prompt,
                 allowed_domains=[domain],
-                config={
-                    "llm_model": settings.llm_model,
-                    "browser_viewport_width": settings.browser_viewport_width,
-                    "browser_viewport_height": settings.browser_viewport_height,
-                    "use_adblock": settings.use_adblock,
-                    "highlight_elements": settings.highlight_elements,
-                    "save_browser_data": settings.save_browser_data,
-                    "max_agent_steps": settings.max_agent_steps,
-                    "headless": settings.headless
-                }
+                config=config
             )
             
             logger.info(f"✅ Form submission completed for {website_url}")
@@ -299,6 +437,7 @@ class FormSubmitter:
         success_search_steps = []
         field_interaction_steps = []
         error_steps = []
+        captcha_steps = []
         
         # Detailed step analysis
         for i, step in enumerate(agent_steps):
@@ -306,13 +445,25 @@ class FormSubmitter:
             step_eval = step.get("evaluation_previous_goal", "").lower()
             step_num = step.get("step", i + 1)
             
+            # Check for CAPTCHA detection
+            captcha_keywords = ["captcha", "solve", "select images", "traffic lights", "crosswalks", "cars", "motorcycles", "chimneys", "verify", "challenge"]
+            if any(keyword in step_goal for keyword in captcha_keywords) or any(keyword in step_eval for keyword in captcha_keywords):
+                captcha_steps.append({"step": step_num, "goal": step_goal, "eval": step_eval})
+            
             # Check for form discovery
             if any(keyword in step_goal for keyword in ["contact form", "form", "contact us", "contact page"]):
                 form_found_steps.append({"step": step_num, "goal": step_goal})
             
-            # Check for field interactions - enhanced detection
-            field_keywords = ["name", "email", "phone", "message", "subject", "company", "textarea", "input"]
-            interaction_keywords = ["fill", "input", "enter", "type", "click", "select", "focus", "clear"]
+            # Check for field interactions - comprehensive detection
+            field_keywords = [
+                "name", "email", "phone", "message", "subject", "company", "textarea", "input",
+                "first name", "last name", "full name", "organization", "business", "title", "position", "job",
+                "comment", "inquiry", "description", "topic", "regarding", "about",
+                "country", "city", "postal", "zip", "address", "location",
+                "department", "reason", "purpose", "contact method", "preference", "time",
+                "checkbox", "terms", "privacy", "consent", "agree", "policy"
+            ]
+            interaction_keywords = ["fill", "input", "enter", "type", "click", "select", "focus", "clear", "check", "choose"]
             
             for field in field_keywords:
                 if field in step_goal:
@@ -352,6 +503,7 @@ class FormSubmitter:
         logger.info(f"  🔘 Submit clicked steps: {len(submit_clicked_steps)}")
         logger.info(f"  ❌ Error steps: {len(error_steps)}")
         logger.info(f"  🔍 Success search steps: {len(success_search_steps)}")
+        logger.info(f"  🤖 CAPTCHA steps: {len(captcha_steps)}")
         
         # Log specific field interactions for debugging
         if field_interaction_steps:
@@ -364,6 +516,52 @@ class FormSubmitter:
             logger.info(f"  ⚠️ Errors detected:")
             for error in error_steps[:3]:  # Show first 3
                 logger.info(f"    Step {error['step']}: {error['error'][:100]}")
+        
+        # Log CAPTCHA detection
+        if captcha_steps:
+            logger.warning(f"  🚨 CAPTCHA detected in {len(captcha_steps)} steps:")
+            for captcha in captcha_steps[-3:]:  # Show last 3 CAPTCHA steps
+                logger.warning(f"    Step {captcha['step']}: {captcha['goal'][:100]}")
+        
+        # NEW: CAPTCHA Loop Detection - Critical Priority
+        if captcha_steps:
+            # Count consecutive CAPTCHA steps
+            consecutive_captcha_count = 0
+            for step in reversed(agent_steps):
+                step_goal = step.get("next_goal", "").lower()
+                step_eval = step.get("evaluation_previous_goal", "").lower()
+                
+                if any(keyword in step_goal for keyword in ["captcha", "solve", "select images", "verify", "challenge"]):
+                    consecutive_captcha_count += 1
+                else:
+                    break
+            
+            # Check if CAPTCHA detection is enabled and if thresholds are exceeded
+            if settings.captcha_detection_enabled and consecutive_captcha_count >= settings.captcha_loop_threshold:
+                logger.error(f"🚨 CAPTCHA INFINITE LOOP DETECTED: {consecutive_captcha_count} consecutive CAPTCHA steps")
+                return {
+                    "likely_success": False,
+                    "reason": f"CAPTCHA infinite loop detected - agent stuck on CAPTCHA for {consecutive_captcha_count} consecutive steps. Website likely has CAPTCHA protection that cannot be bypassed.",
+                    "captcha_loop_detected": True,
+                    "consecutive_captcha_steps": consecutive_captcha_count,
+                    "total_captcha_steps": len(captcha_steps),
+                    "total_steps": total_steps,
+                    "should_skip": True,
+                    "skip_reason": "CAPTCHA_PROTECTION_DETECTED"
+                }
+            
+            # Check if total CAPTCHA steps exceed threshold
+            if settings.captcha_detection_enabled and len(captcha_steps) >= settings.captcha_total_threshold:
+                logger.error(f"🚨 EXCESSIVE CAPTCHA ATTEMPTS: {len(captcha_steps)} total CAPTCHA steps")
+                return {
+                    "likely_success": False,
+                    "reason": f"Excessive CAPTCHA attempts detected - {len(captcha_steps)} total CAPTCHA steps. Website requires human verification.",
+                    "captcha_excessive_attempts": True,
+                    "total_captcha_steps": len(captcha_steps),
+                    "total_steps": total_steps,
+                    "should_skip": True,
+                    "skip_reason": "CAPTCHA_PROTECTION_DETECTED"
+                }
         
         # Pattern 1: Step 20+ Emergency Checkpoint
         if total_steps >= 20:
@@ -438,13 +636,14 @@ class FormSubmitter:
         # Pattern 6: No success indicators found - detailed diagnosis
         return {
             "likely_success": False,
-            "reason": f"No clear success indicators found in {total_steps} steps. Form found: {len(form_found_steps)}, Field interactions: {len(field_interaction_steps)}, Form filled: {len(form_filled_steps)}, Submit clicked: {len(submit_clicked_steps)}, Errors: {len(error_steps)}",
+            "reason": f"No clear success indicators found in {total_steps} steps. Form found: {len(form_found_steps)}, Field interactions: {len(field_interaction_steps)}, Form filled: {len(form_filled_steps)}, Submit clicked: {len(submit_clicked_steps)}, Errors: {len(error_steps)}, CAPTCHAs: {len(captcha_steps)}",
             "form_found_steps": len(form_found_steps),
             "field_interaction_steps": len(field_interaction_steps),
             "form_filled_steps": len(form_filled_steps),
             "submit_clicked_steps": len(submit_clicked_steps),
             "error_steps": len(error_steps),
             "success_search_steps": len(success_search_steps),
+            "total_captcha_steps": len(captcha_steps),
             "total_steps": total_steps,
             "diagnosis": "Field filling detection may need improvement" if len(field_interaction_steps) == 0 else "Form interaction detected but success unclear"
         } 

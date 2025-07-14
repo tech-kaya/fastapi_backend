@@ -6,6 +6,8 @@ from app.db.models.form_submission import Place, User, FormSubmission
 from app.db.schemas.form_submission import (
     PlaceCreate, UserCreate, FormSubmissionCreate, FormSubmissionStatus
 )
+import asyncio
+import logging
 
 
 async def get_places(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Place]:
@@ -87,19 +89,52 @@ async def update_form_submission_status(
     status: str,
     error_message: Optional[str] = None
 ) -> Optional[FormSubmission]:
-    result = await db.execute(
-        select(FormSubmission).where(FormSubmission.id == submission_id)
-    )
-    submission = result.scalar_one_or_none()
+    """Update form submission status with robust error handling"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Check if session is still valid
+            if db.is_active:
+                result = await db.execute(
+                    select(FormSubmission).where(FormSubmission.id == submission_id)
+                )
+                submission = result.scalar_one_or_none()
+                
+                if submission:
+                    submission.submission_status = status
+                    if error_message:
+                        submission.error_message = error_message[:500]  # Truncate long error messages
+                    
+                    await db.commit()
+                    await db.refresh(submission)
+                    return submission
+                else:
+                    # Submission not found, no retry needed
+                    return None
+            else:
+                # Session is not active, need to refresh
+                await db.rollback()
+                raise ConnectionError("Database session is not active")
+                
+        except Exception as e:
+            # Log the error for debugging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Database update attempt {attempt + 1} failed for submission {submission_id}: {str(e)}")
+            
+            if attempt == max_retries - 1:
+                # Final attempt failed, re-raise the error
+                logger.error(f"Failed to update submission {submission_id} after {max_retries} attempts: {str(e)}")
+                raise e
+            
+            # Rollback and wait before retry
+            try:
+                await db.rollback()
+            except:
+                pass  # Rollback might fail if connection is already closed
+            
+            await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
     
-    if submission:
-        submission.submission_status = status
-        if error_message:
-            submission.error_message = error_message
-        await db.commit()
-        await db.refresh(submission)
-    
-    return submission
+    return None
 
 
 async def get_form_submissions(

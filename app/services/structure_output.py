@@ -378,9 +378,16 @@ class StructuredOutputHandler:
                 if any(keyword in step_goal for keyword in ["contact form", "form", "contact us"]):
                     form_found = True
                 
-                # Check for field filling
-                field_keywords = ["name", "email", "phone", "message", "subject", "company", "inquiry", "comment", "details"]
-                filling_actions = ["fill", "input", "enter", "type", "click", "select", "focus", "clear", "paste"]
+                # Check for field filling - comprehensive field detection
+                field_keywords = [
+                    "name", "email", "phone", "message", "subject", "company", "inquiry", "comment", "details",
+                    "first name", "last name", "full name", "organization", "business", "title", "position", "job",
+                    "description", "topic", "regarding", "about", "reason",
+                    "country", "city", "postal", "zip", "address", "location",
+                    "department", "purpose", "contact method", "preference", "time",
+                    "checkbox", "terms", "privacy", "consent", "agree", "policy"
+                ]
+                filling_actions = ["fill", "input", "enter", "type", "click", "select", "focus", "clear", "paste", "check", "choose"]
                 
                 for field in field_keywords:
                     if field in step_goal:
@@ -496,12 +503,19 @@ class StructuredOutputHandler:
                 return None
                 
             field_patterns = {
-                "name": r"\b(name|full name|first name|last name)\b",
-                "email": r"\b(email|e-mail|email address)\b",
-                "phone": r"\b(phone|telephone|mobile|contact number)\b",
-                "message": r"\b(message|comment|inquiry|description)\b",
-                "subject": r"\b(subject|topic|title)\b",
-                "company": r"\b(company|organization|business)\b"
+                "name": r"\b(name|full name|first name|last name|fname|lname)\b",
+                "email": r"\b(email|e-mail|email address|contact email|work email)\b",
+                "phone": r"\b(phone|telephone|mobile|contact number|cell phone|work phone)\b",
+                "message": r"\b(message|comment|inquiry|description|details|how can we help)\b",
+                "subject": r"\b(subject|topic|title|regarding|about|reason for contact)\b",
+                "company": r"\b(company|organization|business|employer|firm|workplace)\b",
+                "title": r"\b(title|position|job title|role|job)\b",
+                "country": r"\b(country|nation|region)\b",
+                "city": r"\b(city|town|municipality)\b",
+                "postal": r"\b(postal code|zip code|zip|postcode)\b",
+                "department": r"\b(department|division|team|reason|purpose)\b",
+                "preference": r"\b(preference|method|contact method|best time)\b",
+                "checkbox": r"\b(checkbox|terms|privacy|consent|agree|policy)\b"
             }
             
             for field_name, pattern in field_patterns.items():
@@ -569,11 +583,63 @@ class StructuredOutputHandler:
             if not isinstance(agent_analysis, dict):
                 agent_analysis = {}
             
+            # CRITICAL: Handle CAPTCHA loop detection first
+            if agent_analysis.get("captcha_loop_detected", False) or agent_analysis.get("captcha_excessive_attempts", False):
+                logger.error("🚨 CAPTCHA protection detected by agent analysis - marking as skipped")
+                
+                # Determine specific skip reason
+                if agent_analysis.get("captcha_loop_detected", False):
+                    skip_reason = f"CAPTCHA infinite loop detected - agent stuck for {agent_analysis.get('consecutive_captcha_steps', 0)} consecutive steps"
+                else:
+                    skip_reason = f"Excessive CAPTCHA attempts - {agent_analysis.get('total_captcha_steps', 0)} total CAPTCHA steps detected"
+                
+                return {
+                    "status": "skipped",
+                    "message": f"Website requires CAPTCHA verification that cannot be bypassed. {skip_reason}",
+                    "form_found": True,  # Form was found but protected by CAPTCHA
+                    "fields_filled": [],
+                    "errors": [skip_reason],
+                    "submission_details": {
+                        "captcha_detected": True,
+                        "captcha_loop_detected": agent_analysis.get("captcha_loop_detected", False),
+                        "consecutive_captcha_steps": agent_analysis.get("consecutive_captcha_steps", 0),
+                        "total_captcha_steps": agent_analysis.get("total_captcha_steps", 0),
+                        "skip_reason": agent_analysis.get("skip_reason", "CAPTCHA_PROTECTION_DETECTED")
+                    },
+                    "agent_analysis": agent_analysis
+                }
+            
+            # Check for other skip conditions
+            if agent_analysis.get("should_skip", False):
+                skip_reason = agent_analysis.get("skip_reason", "UNKNOWN_SKIP_REASON")
+                return {
+                    "status": "skipped",
+                    "message": f"Website skipped due to: {skip_reason}. {agent_analysis.get('reason', '')}",
+                    "form_found": False,
+                    "fields_filled": [],
+                    "errors": [agent_analysis.get("reason", "Unknown skip reason")],
+                    "submission_details": {
+                        "skip_reason": skip_reason
+                    },
+                    "agent_analysis": agent_analysis
+                }
+            
             # Override status if agent analysis indicates success
             if structured_output.get("status") == "failed" and agent_analysis.get("likely_success", False):
                 logger.info("🔍 Agent analysis overriding structured output status to success")
                 structured_output["status"] = "success"
                 structured_output["message"] = f"Form submission successful based on agent behavior analysis. {agent_analysis.get('reason', '')}"
+            
+            # Add CAPTCHA information to submission details if present
+            if agent_analysis.get("total_captcha_steps", 0) > 0:
+                if "submission_details" not in structured_output:
+                    structured_output["submission_details"] = {}
+                
+                structured_output["submission_details"]["captcha_detected"] = True
+                structured_output["submission_details"]["total_captcha_steps"] = agent_analysis.get("total_captcha_steps", 0)
+                
+                # Log CAPTCHA detection for monitoring
+                logger.warning(f"🤖 CAPTCHA detected during submission: {agent_analysis.get('total_captcha_steps', 0)} steps")
             
             # Add agent analysis details
             structured_output["agent_analysis"] = agent_analysis
