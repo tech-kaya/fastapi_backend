@@ -176,7 +176,7 @@ class SubmissionWorkflow:
                     if "Contact form is not available" in result.get("error", ""):
                         logger.info(f"📭 [{i}/{len(places)}] Skipped: {place.name} - No contact form available")
                     elif "User already has" in result.get("error", "") and "submission for this place" in result.get("error", ""):
-                        logger.info(f"🔄 [{i}/{len(places)}] Skipped: {place.name} - User already has submission")
+                        logger.info(f"🔄 [{i}/{len(places)}] Skipped: {place.name} - User already submitted")
                     else:
                         logger.warning(f"⚠️ [{i}/{len(places)}] Skipped: {place.name} - {result.get('error', 'Unknown reason')}")
                 else:
@@ -295,21 +295,26 @@ class SubmissionWorkflow:
                     await asyncio.sleep(3)
                 
             except Exception as e:
-                logger.error(f"💥 Unexpected error processing {place.name}: {str(e)}")
+                # Extract place attributes safely before logging
+                place_id = getattr(place, 'place_id', 'unknown')
+                place_name = getattr(place, 'name', 'unknown')
+                place_website = getattr(place, 'website', '')
+                
+                logger.error(f"💥 Unexpected error processing {place_name}: {str(e)}")
                 failed_count += 1
                 
                 # Rollback the database transaction on error
                 try:
                     await db.rollback()
-                    logger.info(f"🔄 Database transaction rolled back for {place.name}")
+                    logger.info(f"🔄 Database transaction rolled back for {place_name}")
                 except Exception as rollback_error:
                     logger.error(f"❌ Failed to rollback transaction: {rollback_error}")
                 
                 # Still record the failed attempt
                 self.results.append({
-                    "place_id": place.place_id,
-                    "place_name": place.name,
-                    "website_url": place.website or "",
+                    "place_id": place_id,
+                    "place_name": place_name,
+                    "website_url": place_website or "",
                     "status": "failed",
                     "error": f"Workflow error: {str(e)}"
                 })
@@ -548,26 +553,33 @@ class SubmissionWorkflow:
         Uses place_id for validation instead of database id.
         """
         submission_id = None
+        
+        # Extract place attributes early to avoid accessing them after database errors
+        place_id = getattr(place, 'place_id', 'unknown')
+        place_name = getattr(place, 'name', 'unknown')
+        place_website = getattr(place, 'website', '')
+        place_db_id = getattr(place, 'id', None)
+        
         try:
             # Skip if no website URL
-            if not place.website:
-                logger.warning(f"⚠️ No website URL for place {place.name}")
+            if not place_website:
+                logger.warning(f"⚠️ No website URL for place {place_name}")
                 return {
-                    "place_id": place.place_id,
-                    "place_name": place.name,
+                    "place_id": place_id,
+                    "place_name": place_name,
                     "website_url": "",
                     "status": "skipped",
                     "error": "No website URL available"
                 }
             
             # Check if user already has a successful or skipped submission for this place
-            existing_submission = await check_existing_successful_or_skipped_submission_by_place_id(db, user.id, place.place_id)
+            existing_submission = await check_existing_successful_or_skipped_submission_by_place_id(db, user.id, place_id)
             if existing_submission:
-                logger.info(f"✅ User {user.first_name} ({user.email}) already has {existing_submission.submission_status} submission for {place.name} (submission #{existing_submission.id})")
+                logger.info(f"✅ User {user.first_name} ({user.email}) already has {existing_submission.submission_status} submission for {place_name} (submission #{existing_submission.id})")
                 return {
-                    "place_id": place.place_id,
-                    "place_name": place.name,
-                    "website_url": place.website,
+                    "place_id": place_id,
+                    "place_name": place_name,
+                    "website_url": place_website,
                     "status": "skipped",
                     "error": f"User already has {existing_submission.submission_status} submission for this place",
                     "existing_submission_id": existing_submission.id,
@@ -575,13 +587,13 @@ class SubmissionWorkflow:
                 }
             
             # Validate website URL
-            website_url = place.website.strip()
+            website_url = place_website.strip()
             if not website_url.startswith(('http://', 'https://')):
                 website_url = 'https://' + website_url
             
             # Create initial form submission record
             submission_data = FormSubmissionCreate(
-                place_id=place.id,
+                place_id=place_db_id,
                 user_id=user.id,
                 website_url=website_url,
                 submission_status="pending"
@@ -589,7 +601,7 @@ class SubmissionWorkflow:
             
             db_submission = await create_form_submission(db, submission_data)
             submission_id = db_submission.id
-            logger.info(f"📝 Created submission record #{submission_id} for {place.name}")
+            logger.info(f"📝 Created submission record #{submission_id} for {place_name}")
             
             try:
                 # Prepare user data for form submission
@@ -600,17 +612,17 @@ class SubmissionWorkflow:
                     "message": f"Hello, I'm interested in your services. Please contact me at {user.email}."
                 }
                 
-                logger.info(f"👤 User data prepared for {place.name}: {user_data['name']} ({user_data['email']})")
+                logger.info(f"👤 User data prepared for {place_name}: {user_data['name']} ({user_data['email']})")
                 
                 # Use FormSubmitter to fill and submit the contact form
                 async with FormSubmitter() as submitter:
-                    logger.info(f"🔧 Starting form submission for {place.name}...")
+                    logger.info(f"🔧 Starting form submission for {place_name}...")
                     
                     submission_result = await submitter.submit_contact_form(
                         website_url=website_url, 
                         user_data=user_data,
                         user_id=user.id,
-                        place_id=place.id,
+                        place_id=place_db_id,
                         db_session=db
                     )
                 
@@ -623,8 +635,8 @@ class SubmissionWorkflow:
                         
                         return {
                             "submission_id": submission_id,
-                            "place_id": place.place_id,
-                            "place_name": place.name,
+                            "place_id": place_id,
+                            "place_name": place_name,
                             "website_url": website_url,
                             "status": "success",
                             "message": submission_result["message"]
@@ -641,8 +653,8 @@ class SubmissionWorkflow:
                         
                         return {
                             "submission_id": submission_id,
-                            "place_id": place.place_id,
-                            "place_name": place.name,
+                            "place_id": place_id,
+                            "place_name": place_name,
                             "website_url": website_url,
                             "status": "skipped",
                             "error": submission_result.get("error", "Contact form is not available")
@@ -659,8 +671,8 @@ class SubmissionWorkflow:
                         
                         return {
                             "submission_id": submission_id,
-                            "place_id": place.place_id,
-                            "place_name": place.name,
+                            "place_id": place_id,
+                            "place_name": place_name,
                             "website_url": website_url,
                             "status": "failed",
                             "error": submission_result.get("message", "Unknown error")
@@ -673,7 +685,7 @@ class SubmissionWorkflow:
                     
             except asyncio.TimeoutError:
                 error_message = f"Form submission timed out after {settings.form_timeout} seconds"
-                logger.error(f"⏰ {error_message} for {place.name}")
+                logger.error(f"⏰ {error_message} for {place_name}")
                 
                 # Update database with timeout error
                 try:
@@ -690,8 +702,8 @@ class SubmissionWorkflow:
                 
                 return {
                     "submission_id": submission_id,
-                    "place_id": place.place_id,
-                    "place_name": place.name,
+                    "place_id": place_id,
+                    "place_name": place_name,
                     "website_url": website_url,
                     "status": "failed",
                     "error": error_message
@@ -699,7 +711,7 @@ class SubmissionWorkflow:
                 
             except Exception as e:
                 error_message = f"Exception during form submission: {str(e)}"
-                logger.error(f"💥 {error_message} for {place.name}")
+                logger.error(f"💥 {error_message} for {place_name}")
                 
                 # Update database with error
                 try:
@@ -716,8 +728,8 @@ class SubmissionWorkflow:
                 
                 return {
                     "submission_id": submission_id,
-                    "place_id": place.place_id,
-                    "place_name": place.name,
+                    "place_id": place_id,
+                    "place_name": place_name,
                     "website_url": website_url,
                     "status": "failed",
                     "error": error_message
@@ -725,19 +737,14 @@ class SubmissionWorkflow:
                 
         except Exception as outer_e:
             error_message = f"Critical error during place processing: {str(outer_e)}"
-            logger.error(f"💥 {error_message} for {place.name}")
+            logger.error(f"💥 {error_message} for {place_name}")
             
             # Rollback transaction on critical error
             try:
                 await db.rollback()
-                logger.info(f"🔄 Database transaction rolled back for {place.name}")
+                logger.info(f"🔄 Database transaction rolled back for {place_name}")
             except Exception as rollback_error:
                 logger.error(f"❌ Failed to rollback transaction: {rollback_error}")
-            
-            # Use string representation to avoid accessing SQLAlchemy attributes after rollback
-            place_id = getattr(place, 'place_id', 'unknown')
-            place_name = getattr(place, 'name', 'unknown')
-            place_website = getattr(place, 'website', '')
             
             return {
                 "place_id": place_id,

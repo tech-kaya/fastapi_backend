@@ -151,6 +151,10 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/contact_forms
 # AI Agent (Required)
 BROWSER_USE_API_KEY=your_api_key_here
 
+# CAPTCHA Handling (Automatic)
+USE_PROXY=true              # Enable proxy for automatic CAPTCHA solving
+PROXY_COUNTRY_CODE=us       # Proxy country (us, uk, ca, de, fr, etc.)
+
 # Optional Settings
 MAX_AGENT_STEPS=30          # How many steps before giving up
 FORM_TIMEOUT=120            # Seconds to wait
@@ -165,6 +169,12 @@ HEADLESS=false              # Show browser window (true to hide)
 - **Fills forms intelligently**: Knows which field is for name, email, etc.
 - **Handles different websites**: Works with most contact form designs
 - **Never gets stuck**: Has smart rules to prevent infinite loops
+
+### Automatic CAPTCHA Solving
+- **No manual intervention**: Browser Use Cloud automatically solves CAPTCHAs
+- **Works with all types**: reCAPTCHA, hCaptcha, image challenges, etc.
+- **Seamless integration**: Agent continues normally after CAPTCHA resolution
+- **Proxy-powered**: Uses global proxies for enhanced CAPTCHA solving
 
 ### What You See
 Watch the AI work in real-time:
@@ -229,6 +239,8 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 SHOW_AGENT_STEPS=true
 HEADLESS=false
 MAX_AGENT_STEPS=25
+USE_PROXY=true
+PROXY_COUNTRY_CODE=us
 ```
 
 **For running lots of forms:**
@@ -236,6 +248,15 @@ MAX_AGENT_STEPS=25
 SHOW_AGENT_STEPS=false
 HEADLESS=true
 MAX_AGENT_STEPS=20
+USE_PROXY=true
+PROXY_COUNTRY_CODE=us
+```
+
+**For CAPTCHA-heavy websites:**
+```env
+USE_PROXY=true              # Required for automatic CAPTCHA solving
+PROXY_COUNTRY_CODE=us       # Choose based on target region
+MAX_AGENT_STEPS=40          # Allow more steps for CAPTCHA resolution
 ```
 
 ## 🐛 If Something Goes Wrong
@@ -251,11 +272,20 @@ MAX_AGENT_STEPS=20
 **Database errors**
 - Make sure PostgreSQL is running
 - Check your DATABASE_URL in .env file
+- Connection timeout errors during long operations are now handled automatically with retry logic
+- "MissingGreenlet" errors have been resolved with improved async context handling
 
 **Forms not submitting**
 - Some websites have complex forms or CAPTCHAs
 - Check the logs to see what the AI tried
-- The AI might mark it as "skipped" if no form was found
+- CAPTCHAs are now automatically solved by Browser Use Cloud
+- Infinite loops are prevented with intelligent detection and timeouts
+
+**CAPTCHA Issues**
+- Make sure `USE_PROXY=true` is set in your .env file
+- CAPTCHAs are automatically solved - no manual intervention needed
+- If CAPTCHA solving fails, check your Browser Use Cloud subscription
+- Try different `PROXY_COUNTRY_CODE` values (us, uk, ca, de, fr)
 
 ## 💡 Tips for Better Results
 
